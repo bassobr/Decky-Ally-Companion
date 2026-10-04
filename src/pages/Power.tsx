@@ -4,6 +4,7 @@ import { type Curve, CurveEditor } from "../components/CurveEditor";
 import { FocusStop } from "../components/FocusStop";
 import { InfoField, isActive, ModuleToggle } from "../components/ModuleRow";
 import { useDebounced } from "../hooks/useDebounced";
+import { batteryPower, useLive } from "../hooks/useLive";
 import { mod, useModule } from "../store";
 import type { ModuleStatus } from "../types";
 
@@ -42,6 +43,7 @@ function FanCurve({ m }: { m: ModuleStatus }) {
 
 function Fan({ m }: { m: ModuleStatus }) {
   const d = m.details;
+  const live = useLive();
   const [edit, setEdit] = useState(false);
   return (
     <DialogControlsSection>
@@ -51,9 +53,9 @@ function Fan({ m }: { m: ModuleStatus }) {
         onChange={(on) => void mod.enable("fan", on)} />
       {isActive(m) && (
         <>
-          <InfoField label="Thermal profile" value={d.profile} />
-          <InfoField label="Fans" value={d.rpm ? `${d.rpm[0] ?? "–"} / ${d.rpm[1] ?? "–"} rpm` : null} />
-          <InfoField label="CPU temperature" value={d.temp != null ? `${Math.round(d.temp)} °C` : null} />
+          <InfoField label="Thermal profile" value={live?.platformProfile ?? d.profile} />
+          <InfoField label="Fans" value={live?.fansRpm.length ? `${live.fansRpm.map((r) => r ?? "–").join(" / ")} rpm` : null} />
+          <InfoField label="CPU temperature" value={live?.cpu.tempC != null ? `${Math.round(live.cpu.tempC)} °C` : null} />
         </>
       )}
       {isActive(m) && m.enabled && (
@@ -90,6 +92,8 @@ function HealthHistory({ history }: { history: { d: string; h: number; e: number
 
 function Battery({ m }: { m: ModuleStatus }) {
   const d = m.details;
+  const b = useLive()?.battery;
+  const power = batteryPower(b);
   const [limit, setLimit] = useState<number>(d.chargeLimit ?? 100);
   useEffect(() => setLimit(d.chargeLimit ?? 100), [d.chargeLimit]);
   const send = useDebounced((v: number) => void mod.action("battery", "set_charge_limit", { level: v >= 100 ? null : v }));
@@ -97,9 +101,9 @@ function Battery({ m }: { m: ModuleStatus }) {
   return (
     <DialogControlsSection>
       <DialogControlsSectionHeader>Battery</DialogControlsSectionHeader>
-      <InfoField label="Charge" value={d.capacity != null ? `${d.capacity} % · ${d.status}` : null} />
+      <InfoField label="Charge" value={b?.capacity != null ? `${b.capacity} % · ${b.status}` : null} />
       <InfoField label="Health" value={d.healthPct != null ? `${d.healthPct} % (${d.energyFullWh} of ${d.energyDesignWh} Wh)` : null} />
-      <InfoField label="Power draw" value={d.powerW != null ? `${d.powerW} W` : null} />
+      <InfoField label={power.label} value={power.value} />
       {d.chargeLimitSupported && (
         <SliderField label="Charge limit" value={limit} min={Math.max(50, d.chargeLimitMin ?? 50)} max={100} step={5} showValue
           valueSuffix=" %" description={limit >= 100 ? "No limit" : "Charging stops here. Same setting as in Steam's power settings."}

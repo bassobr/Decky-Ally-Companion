@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2 (2026-10-04)
+
+- Power & battery: charge, battery power, fan speed, CPU temperature and thermal profile follow the
+  live values (every 2 s while the page is open) instead of the state from when the plugin
+  loaded. The battery power is labelled by what it is: charging power while charging, power draw
+  while on battery.
+- Every page of the fullscreen view fetches the plugin state when it opens.
+
 ## 0.3.1 (2026-10-04)
 
 Security (found in a review; a process running as the Decky user could gain root):

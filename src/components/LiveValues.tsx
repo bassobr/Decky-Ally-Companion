@@ -1,35 +1,16 @@
 import { DialogControlsSection, DialogControlsSectionHeader } from "@decky/ui";
-import { useEffect, useState } from "react";
-import { getLive } from "../backend";
+import { batteryPower, useLive } from "../hooks/useLive";
 import { usePluginState } from "../store";
-import type { LiveValues as Live } from "../types";
 import { InfoField } from "./ModuleRow";
 
-const POLL_MS = 2000;
 const n = (v: number | null | undefined, unit: string) => (v == null ? null : `${v} ${unit}`);
 
 /** Sensors, polled only while this section is on screen. */
 export function LiveValues() {
-  const [live, setLive] = useState<Live | null>(null);
+  const live = useLive();
   const boostModule = usePluginState().state?.modules.cpu_boost;
-  useEffect(() => {
-    let stop = false;
-    const tick = async () => {
-      try {
-        const v = await getLive();
-        if (!stop) setLive(v);
-      } catch {
-        /* keep the last values */
-      }
-    };
-    void tick();
-    const id = window.setInterval(() => void tick(), POLL_MS);
-    return () => {
-      stop = true;
-      window.clearInterval(id);
-    };
-  }, []);
   if (!live) return null;
+  const power = batteryPower(live.battery);
   const c = live.cpu, g = live.gpu;
   const fixOn = !!boostModule?.enabled || boostModule?.details.override === true;
   const boostText = c.boost
@@ -43,7 +24,7 @@ export function LiveValues() {
         <InfoField label="GPU" value={[n(g.tempC, "°C"), n(g.clockMHz, "MHz"), g.busyPct != null ? `${g.busyPct} % busy` : null].filter(Boolean).join(" · ")} />
         <InfoField label="APU power" value={n(g.apuW, "W")} />
         <InfoField label="Battery" value={[live.battery.capacity != null ? `${live.battery.capacity} %` : null, live.battery.status,
-          n(live.battery.powerW, "W")].filter(Boolean).join(" · ")} />
+          power.value && power.label !== "Power" ? `${power.label.toLowerCase()} ${power.value}` : null].filter(Boolean).join(" · ")} />
         <InfoField label="Fans" value={live.fansRpm.length ? live.fansRpm.map((r) => r ?? "–").join(" / ") + " rpm" : null} />
         <InfoField label="Power profile" value={[live.platformProfile, live.pptW[0] != null ? `PPT ${live.pptW.filter((x) => x != null).join("/")} W` : null].filter(Boolean).join(" · ")} />
       </DialogControlsSection>
