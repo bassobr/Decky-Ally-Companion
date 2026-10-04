@@ -19,13 +19,33 @@ export interface StackInfo {
   asusArmoury: boolean;
 }
 
+export type ModuleState =
+  | "applied"
+  | "not_applied"
+  | "error"
+  | "stale"
+  | "restart_pending"
+  | "not_supported"
+  | "info"
+  | "blocked";
+
 export interface ModuleStatus {
   id: string;
   title: string;
   supported: boolean;
-  reason: string;
-  error: string | null;
-  state: Record<string, unknown>;
+  toggle: boolean;
+  enabled: boolean;
+  state: ModuleState;
+  message: string;
+  details: Record<string, any>;
+  blockedBy?: string;
+}
+
+export interface ModuleResult {
+  ok: boolean;
+  error: string;
+  result: unknown;
+  status: ModuleStatus;
 }
 
 export interface UpdateInfo {
@@ -49,6 +69,18 @@ export interface PluginState {
   version: string;
   device: DeviceInfo;
   stack: StackInfo;
+  conflicts: string[];
   modules: Record<string, ModuleStatus>;
   update: UpdateInfo;
+}
+
+/** Outcome of the UI half of the gamepad layout module (see layoutPatch.ts). */
+export interface UiPatchResult {
+  ok: boolean;
+  stage?: string;
+  error?: string;
+  module?: string;
+  wrapped?: string[];
+  caps?: string[];
+  art?: string;
 }

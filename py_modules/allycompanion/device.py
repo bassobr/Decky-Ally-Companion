@@ -15,6 +15,10 @@ LED_DIR = "sys/class/leds/ally:rgb:joystick_rings"
 ARMOURY_DIR = "sys/class/firmware-attributes/asus-armoury/attributes"
 
 
+XBOX_ALLY_BOARDS = ("RC73XA", "RC73YA")  # MCU with Enhanced Vibration; InputPlumber config 50-rog_xbox_ally
+IMPULSE_TRIGGER_BOARDS = ("RC73XA",)  # motors in the triggers
+
+
 def board() -> str:
     return read_text(paths.sys_path("sys/class/dmi/id/board_name"), "") or ""
 
@@ -25,6 +29,14 @@ def model_name(b: Optional[str] = None) -> Optional[str]:
 
 def supported() -> bool:
     return board() in BOARDS
+
+
+def is_xbox_ally() -> bool:
+    return board() in XBOX_ALLY_BOARDS
+
+
+def has_impulse_triggers() -> bool:
+    return board() in IMPULSE_TRIGGER_BOARDS
 
 
 def ally_config_dir() -> Optional[str]:

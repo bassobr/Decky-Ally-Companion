@@ -40,11 +40,25 @@ def call(service: str, path: str, interface: str, method: str, signature: str = 
     return data[0] if isinstance(data, list) and len(data) == 1 else data
 
 
+def set_property(service: str, path: str, interface: str, prop: str, signature: str, value: Any,
+                 user_bus: bool = False, timeout: float = 10) -> None:
+    _busctl(["set-property", service, path, interface, prop, signature, _arg(value)], user_bus, timeout)
+
+
 def try_get_property(*args: Any, **kwargs: Any) -> Optional[Any]:
     try:
         return get_property(*args, **kwargs)
     except (DBusError, ValueError):
         return None
+
+
+def tree(service: str, user_bus: bool = False, timeout: float = 5) -> List[str]:
+    """Object paths a service exports."""
+    r = run(["busctl", "--user" if user_bus else "--system", "--list", "tree", service], timeout=timeout,
+            as_user=user_bus)
+    if not r.ok:
+        raise DBusError((r.err or r.out).strip()[:300] or f"busctl rc={r.rc}")
+    return [line.strip() for line in r.out.splitlines() if line.strip().startswith("/")]
 
 
 def unwrap(reply: Any) -> Any:

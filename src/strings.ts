@@ -35,7 +35,7 @@ export const t = {
   missing: "missing",
   notRunning: "not running",
   modules: "Modules",
-  noModules: "No modules yet. They arrive one by one, starting with Audio and Controller.",
+  noModules: "No modules.",
   notSupported: "Not supported",
 
   planned: "Planned",
@@ -53,19 +53,6 @@ export const plannedPages: Record<string, string[]> = {
   audio: [
     "Dolby speaker tuning as a PipeWire filter chain (from Ally DSP)",
     "Presets per game, headphone detection",
-  ],
-  controller: [
-    "Vibration intensity, Enhanced Vibration, rumble on the impulse triggers (from Ally Fix)",
-    "Gyro fix and gamepad layout fix for Steam Input (from Ally Fix)",
-    "Stick and trigger deadzones, response curves, button remapping (hid_asus_ally)",
-  ],
-  lighting: [
-    "Color, brightness and effects for the joystick rings",
-    "State lighting: battery level, charging, temperature",
-  ],
-  power: [
-    "CPU boost and fan fixes after charger events and resume (from Ally Fix)",
-    "Fan curves, charge limit, MCU power saving",
   ],
   profiles: ["Per-game overrides of every module in one list"],
   news: [

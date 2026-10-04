@@ -1,12 +1,15 @@
-import { ButtonItem, Field, PanelSection, PanelSectionRow } from "@decky/ui";
+import { ButtonItem, Field, PanelSection, PanelSectionRow, SliderField } from "@decky/ui";
 import { toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { installUpdate } from "../backend";
-import { usePluginState } from "../hooks/usePluginState";
+import { useDebounced } from "../hooks/useDebounced";
 import { openPage } from "../navigation";
 import { warnings } from "../status";
+import { restartSteam } from "../steamRestart";
+import { mod, usePluginState } from "../store";
 import { t } from "../strings";
 import { FRONTEND_VERSION } from "../version";
+import { isActive } from "./ModuleRow";
 
 let reopenTried = false;
 
@@ -21,7 +24,21 @@ function reopenWithNewUi(): void {
   }
 }
 
-// The sidebar holds only what changes during a game; modules add their quick controls here.
+function LightBrightness() {
+  const m = usePluginState().state?.modules.lighting;
+  const [value, setValue] = useState<number>(m?.details.brightness ?? 60);
+  useEffect(() => setValue(m?.details.brightness ?? 60), [m?.details.brightness]);
+  const send = useDebounced((v: number) => void mod.options("lighting", { brightness: v }));
+  if (!m || !m.enabled || !isActive(m) || m.details.mode === "off") return null;
+  return (
+    <PanelSectionRow>
+      <SliderField label={t.lighting} value={value} min={0} max={100} step={5} showValue valueSuffix=" %"
+        onChange={(v) => { setValue(v); send(v); }} />
+    </PanelSectionRow>
+  );
+}
+
+// The sidebar holds only what changes during a game; everything else is in the fullscreen view.
 export function QuickAccess() {
   const { state, error, refresh } = usePluginState();
   const [busy, setBusy] = useState(false);
@@ -47,6 +64,7 @@ export function QuickAccess() {
   }
 
   const w = warnings(state);
+  const restartPending = Object.values(state.modules).some((m) => m.state === "restart_pending");
   const onUpdate = async () => {
     setBusy(true);
     try {
@@ -69,6 +87,12 @@ export function QuickAccess() {
           <Field label={t.staleUi} />
         </PanelSectionRow>
       )}
+      {restartPending && (
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={() => void restartSteam()}>Restart Steam to apply</ButtonItem>
+        </PanelSectionRow>
+      )}
+      <LightBrightness />
       {state.update.updateAvailable && state.update.latestVersion && (
         <PanelSectionRow>
           <ButtonItem layout="below" disabled={busy} onClick={() => void onUpdate()}>

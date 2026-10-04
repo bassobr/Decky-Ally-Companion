@@ -4,7 +4,7 @@ import os
 import pytest
 
 from allycompanion import dbus, device, paths, settings, updater, util
-from allycompanion.module import Module
+from allycompanion.module import Context, Module
 from allycompanion.registry import Registry
 from allycompanion.resume import ResumeDetector
 
@@ -117,17 +117,33 @@ def test_unknown_board_is_unsupported(sysroot):
 class FakeModule(Module):
     id = "fake"
     title = "Fake"
+    toggle = True
     defaults = {"enabled": False, "level": 50}
 
     def __init__(self):
         super().__init__()
         self.events = []
+        self.hw = None
 
-    def state(self):
+    def is_applied(self):
+        return self.hw == self.cfg["level"]
+
+    async def apply(self):
+        self.hw = self.cfg["level"]
+        self.events.append("apply")
+
+    async def revert(self):
+        self.hw = None
+        self.events.append("revert")
+
+    def set_options(self, opts):
+        if "level" in opts:
+            self.update_cfg({"level": int(opts["level"])})
+            return True
+        return False
+
+    def details(self):
         return {"level": self.cfg["level"]}
-
-    async def start(self):
-        self.events.append("start")
 
     async def on_resume(self, slept_s):
         self.events.append(("resume", slept_s))
@@ -144,6 +160,17 @@ class Unsupported(Module):
         raise AssertionError("must not start")
 
 
+def _bound(classes, saved=None):
+    reg = Registry(classes)
+    s = {"modules": reg.defaults()}
+
+    async def emit(event, payload):
+        pass
+
+    reg.bind(s, Context(lambda: (saved.append(1) if saved is not None else None), emit))
+    return reg, s
+
+
 def test_settings_merge_keeps_unknown_keys_and_fills_defaults():
     merged = settings.merge({"a": 1, "b": {"c": 2, "d": 3}}, {"b": {"c": 5}, "x": 9})
     assert merged == {"a": 1, "b": {"c": 5, "d": 3}, "x": 9}
@@ -157,23 +184,37 @@ def test_settings_load_adds_module_sections(tmp_path, monkeypatch):
     assert s["update"]["autoCheck"] is True
 
 
-def test_registry_lifecycle_isolates_failures():
-    reg = Registry([FakeModule, Unsupported])
-    s = {"modules": reg.defaults()}
+def test_toggle_module_apply_revert_and_status(monkeypatch):
+    monkeypatch.setattr("allycompanion.conflicts.blocked", lambda: {})
     saved = []
-
-    async def emit(event, payload):
-        pass
-
-    reg.bind(s, lambda: saved.append(1), emit)
-    asyncio.run(reg.start())
-    asyncio.run(reg.on_resume(12.0))
+    reg, s = _bound([FakeModule, Unsupported], saved)
     fake = reg.get("fake")
-    assert fake.events == ["start", ("resume", 12.0)]
-    st = reg.status()
-    assert st["fake"]["error"] == "on_resume failed: boom" and st["fake"]["state"] == {"level": 50}
-    assert st["nope"] == {"id": "nope", "title": "", "supported": False, "reason": "no hardware",
-                          "error": None, "state": {}}
+    asyncio.run(reg.start())
+    assert fake.events == []  # disabled: nothing applied
+    asyncio.run(fake.set_enabled(True))
+    assert fake.hw == 50 and s["modules"]["fake"]["enabled"] and saved
+    asyncio.run(fake.change_options({"level": 70}))
+    assert fake.hw == 70
+    st = asyncio.run(reg.status())
+    assert st["fake"]["state"] == "applied" and st["fake"]["details"] == {"level": 70}
+    assert st["nope"]["state"] == "not_supported" and st["nope"]["message"] == "no hardware"
+    asyncio.run(reg.on_resume(12.0))
+    assert ("resume", 12.0) in fake.events
+    assert asyncio.run(reg.status())["fake"]["state"] == "error"
+    asyncio.run(reg.uninstall())
+    assert fake.events[-1] == "revert"
+
+
+def test_blocked_modules_stay_passive(monkeypatch):
+    monkeypatch.setattr("allycompanion.conflicts.blocked", lambda: {"fake": "Ally Fix"})
+    reg, s = _bound([FakeModule])
+    s["modules"]["fake"]["enabled"] = True
+    asyncio.run(reg.start())
+    assert reg.get("fake").events == []
+    st = asyncio.run(reg.status())["fake"]
+    assert st["state"] == "blocked" and st["blockedBy"] == "Ally Fix"
+    with pytest.raises(RuntimeError):
+        reg.check_not_blocked("fake")
 
 
 def test_registry_rejects_duplicate_ids():

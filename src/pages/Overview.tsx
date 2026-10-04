@@ -1,4 +1,5 @@
 import { DialogBody, DialogControlsSection, DialogControlsSectionHeader, Field } from "@decky/ui";
+import { stateLine } from "../components/ModuleRow";
 import { warnings } from "../status";
 import { t } from "../strings";
 import type { PluginState } from "../types";
@@ -36,8 +37,7 @@ export function Overview({ state }: { state: PluginState }) {
         <DialogControlsSectionHeader>{t.modules}</DialogControlsSectionHeader>
         {modules.length === 0 && <Field label={t.noModules} focusable />}
         {modules.map((m) => (
-          <Field key={m.id} label={m.title} focusable
-            description={!m.supported ? `${t.notSupported}: ${m.reason}` : m.error ?? undefined} />
+          <Field key={m.id} label={m.title} focusable description={stateLine(m) || undefined} />
         ))}
       </DialogControlsSection>
     </DialogBody>

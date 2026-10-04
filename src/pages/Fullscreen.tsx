@@ -1,11 +1,14 @@
 import { DialogBody, Field, SidebarNavigation, type SidebarNavigationPage } from "@decky/ui";
 import type { ReactNode } from "react";
 import { FaBatteryHalf, FaCog, FaGamepad, FaInfoCircle, FaLightbulb, FaListUl, FaNewspaper, FaVolumeUp } from "react-icons/fa";
-import { usePluginState } from "../hooks/usePluginState";
 import { ROUTE } from "../navigation";
+import { usePluginState } from "../store";
 import { t } from "../strings";
+import { Controller } from "./Controller";
+import { Lighting } from "./Lighting";
 import { Overview } from "./Overview";
 import { Planned } from "./Planned";
+import { Power } from "./Power";
 import { System } from "./System";
 
 /** Everything beyond the sidebar essentials, laid out like Steam's own settings. */
@@ -22,20 +25,21 @@ export function Fullscreen() {
     );
   }
 
-  const planned = (identifier: string, title: string, icon: ReactNode): SidebarNavigationPage =>
-    ({ identifier, title, icon, route: `${ROUTE}/${identifier}`, content: <Planned page={identifier} /> });
+  const page = (identifier: string, title: string, icon: ReactNode, content: ReactNode): SidebarNavigationPage =>
+    ({ identifier, title, icon, route: `${ROUTE}/${identifier}`, content });
+  const planned = (identifier: string, title: string, icon: ReactNode) => page(identifier, title, icon, <Planned page={identifier} />);
 
   const pages: (SidebarNavigationPage | "separator")[] = [
-    { identifier: "overview", title: t.overview, icon: <FaInfoCircle />, route: `${ROUTE}/overview`, content: <Overview state={state} /> },
+    page("overview", t.overview, <FaInfoCircle />, <Overview state={state} />),
     "separator",
     planned("audio", t.audio, <FaVolumeUp />),
-    planned("controller", t.controller, <FaGamepad />),
-    planned("lighting", t.lighting, <FaLightbulb />),
-    planned("power", t.power, <FaBatteryHalf />),
+    page("controller", t.controller, <FaGamepad />, <Controller />),
+    page("lighting", t.lighting, <FaLightbulb />, <Lighting />),
+    page("power", t.power, <FaBatteryHalf />, <Power />),
     planned("profiles", t.profiles, <FaListUl />),
     planned("news", t.news, <FaNewspaper />),
     "separator",
-    { identifier: "system", title: t.system, icon: <FaCog />, route: `${ROUTE}/system`, content: <System state={state} refresh={refresh} /> },
+    page("system", t.system, <FaCog />, <System state={state} refresh={refresh} />),
   ];
 
   return (

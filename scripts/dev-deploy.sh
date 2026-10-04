@@ -11,7 +11,7 @@ pnpm build >/dev/null
 rm -rf out/deploy; mkdir -p "out/deploy/$NAME/dist"
 cp plugin.json package.json main.py decky.pyi LICENSE THIRD_PARTY_LICENSES.md README.md minisign.pub "out/deploy/$NAME/"
 cp dist/index.js "out/deploy/$NAME/dist/"
-cp -R py_modules "out/deploy/$NAME/py_modules"
+cp -R py_modules bin "out/deploy/$NAME/"
 find "out/deploy/$NAME" -name "__pycache__" -type d -prune -exec rm -rf {} +
 ssh "$HOST" 'rm -rf /tmp/ally-companion-deploy && mkdir -p /tmp/ally-companion-deploy'
 COPYFILE_DISABLE=1 tar --no-xattrs -C out/deploy --exclude "._*" --exclude ".DS_Store" -cf - "$NAME" | ssh "$HOST" 'tar -C /tmp/ally-companion-deploy -xf -'

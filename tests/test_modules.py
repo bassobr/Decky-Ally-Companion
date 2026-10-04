@@ -1,0 +1,202 @@
+import asyncio
+import os
+
+import pytest
+
+from allycompanion import conflicts, migrate, paths, util
+from allycompanion.module import Context
+from allycompanion.modules import MODULES, battery, cpu_boost, fan, gamepad_layout, gyro, lighting, vibration
+from allycompanion.registry import Registry
+
+STOCK = """name: ASUS ROG Xbox Ally
+source_devices:
+  - group: imu
+    iio:
+      mount_matrix:
+        x: [1, 0, 0]
+        y: [0, -1, 0]
+        z: [0, 0, -1]
+"""
+
+
+def _write(root, rel, text):
+    p = os.path.join(root, rel)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w") as f:
+        f.write(text)
+
+
+@pytest.fixture
+def sysroot(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "SYSROOT", str(tmp_path))
+    return str(tmp_path)
+
+
+def _module(cls, cfg=None):
+    m = cls()
+
+    async def emit(e, p):
+        pass
+
+    m.bind({**cls.defaults, **(cfg or {})}, Context(lambda: None, emit))
+    return m
+
+
+def test_all_modules_have_unique_ids_and_json_defaults():
+    reg = Registry(MODULES)
+    assert list(reg.modules) == ["vibration", "gyro", "gamepad_layout", "cpu_boost", "fan", "battery", "lighting"]
+    util.write_json  # defaults must be JSON-serialisable
+    import json
+    json.dumps(reg.defaults())
+
+
+# ------------------------------------------------------------------ gyro
+
+def test_gyro_modes_patch_exactly_one_thing():
+    assert "y: [0, 1, 0]" in gyro.patch(STOCK, "simple")
+    c = gyro.patch(STOCK, "complex")
+    assert "y: [0, 0, -1]" in c and "z: [0, -1, 0]" in c
+    assert "name: ASUS ROG Xbox Ally (Deck Emulation)" in gyro.patch(STOCK, "deck")
+    with pytest.raises(RuntimeError):
+        gyro.patch(STOCK.replace("y: [0, -1, 0]", "y: [0, 1, 0]"), "simple")
+    rendered = gyro.render(STOCK, "a" * 64, "simple")
+    assert rendered.startswith("# managed-by: ally-companion\n# stock-sha256: " + "a" * 64)
+    assert gyro.body(rendered) == gyro.body(gyro.patch(STOCK, "simple"))
+
+
+def test_steam_dev_cfg_edit_keeps_other_lines_and_restores_foreign_value():
+    text = "@nClientDownloadEnableHTTP2PlatformLinux 0\r\ngyro_force_handheld_orientation 1\r\n"
+    new, prev = gyro.edit_steam_cfg(text, True, "")
+    assert new == "@nClientDownloadEnableHTTP2PlatformLinux 0\r\ngyro_force_handheld_orientation 2\r\n"
+    assert prev == "gyro_force_handheld_orientation 1"
+    back, prev2 = gyro.edit_steam_cfg(new, False, prev)
+    assert back == text and prev2 == ""
+    new, prev = gyro.edit_steam_cfg(None, True, "")
+    assert new == "gyro_force_handheld_orientation 2\n"
+    assert gyro.edit_steam_cfg(new, False, prev)[0] is None  # only our line: file goes
+
+
+def test_gyro_takes_over_ally_fix_override(tmp_path, monkeypatch):
+    stock = tmp_path / "stock.yaml"
+    stock.write_text(STOCK)
+    override = tmp_path / "override.yaml"
+    monkeypatch.setattr(gyro, "STOCK", str(stock))
+    monkeypatch.setattr(gyro, "OVERRIDE", str(override))
+    m = _module(gyro.Gyro, {"enabled": True})
+    assert m.override_state() == "absent"
+    override.write_text(gyro.render(STOCK, gyro.sha256(str(stock)), "simple").replace("ally-companion", "ally-fix"))
+    assert m.override_state() == "mismatch"  # managed by the predecessor: rewritten with our marker
+    override.write_text(gyro.render(STOCK, gyro.sha256(str(stock)), "simple"))
+    assert m.override_state() == "current"
+    override.write_text(gyro.render(STOCK, "b" * 64, "simple"))
+    assert m.override_state() == "stale"
+    override.write_text("name: something else\n")
+    assert m.override_state() == "foreign"
+
+
+# ------------------------------------------------------------------ gamepad layout
+
+def test_layout_dropin_repeats_other_preloads(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "HOME", str(tmp_path))
+    unit = b"[Service]\nEnvironment=LD_PRELOAD=/usr/lib/libfoo.so\n"
+    assert gamepad_layout.preload_from(unit, []) == ["/usr/lib/libfoo.so"]
+    assert gamepad_layout.preload_from(b"Environment=\n", ["/x.so"]) == []
+    d = tmp_path / ".config/systemd/user/steam-launcher.service.d"
+    d.mkdir(parents=True)
+    (d / "10-other.conf").write_text('[Service]\nEnvironment="LD_PRELOAD=/opt/a.so /opt/b.so"\n')
+    (d / "zz-ally-fix-gamepad-layout.conf").write_text("Environment=LD_PRELOAD=/home/x/.local/lib/ally-fix/$LIB/liballycaps.so\n")
+    monkeypatch.setattr(gamepad_layout, "dropin_dirs", lambda: (str(d),))
+    monkeypatch.setattr("allycompanion.steam.UNIT_FILE", str(tmp_path / "missing.service"))
+    m = _module(gamepad_layout.GamepadLayout)
+    text = m.dropin_text()
+    assert f"Environment=LD_PRELOAD=/opt/a.so:/opt/b.so:{tmp_path}/.local/lib/ally-companion/$LIB/liballycaps.so" in text
+    assert "ALLYCAPS_MASK=0x60afff" in text
+
+
+# ------------------------------------------------------------------ vibration
+
+def test_vibration_options_link_and_clamp():
+    m = _module(vibration.Vibration)
+    assert m.set_options({"left": 150})
+    assert m.intensity == (100, 100)
+    m.set_options({"linked": False, "right": -5})
+    assert m.intensity == (100, 0)
+    assert not m.set_options({"unknown": 1})
+
+
+# ------------------------------------------------------------------ power
+
+def test_cpu_policies_sorted_numerically(sysroot):
+    for n in (0, 2, 10, 1):
+        _write(sysroot, f"sys/devices/system/cpu/cpu{n}/cpufreq/scaling_max_freq", "2000000")
+    assert [os.path.basename(os.path.dirname(p)) for p in cpu_boost.policies()] == ["cpu0", "cpu1", "cpu2", "cpu10"]
+
+
+def test_fan_curve_sanitize():
+    c = fan.sanitize({"temps": [30, 25, 50, 60, 70, 80, 90, 200], "pwm1": [0, 10, 5, 300, 0, 0, 0, 0],
+                      "pwm2": [1, 2, 3, 4, 5, 6, 7, 8]})
+    assert c["temps"] == [30, 30, 50, 60, 70, 80, 90, 110]
+    assert c["pwm1"] == [0, 10, 10, 255, 255, 255, 255, 255]
+    assert fan.valid(c)
+    with pytest.raises(ValueError):
+        fan.sanitize({"temps": [1, 2], "pwm1": [], "pwm2": []})
+
+
+def test_battery_info_from_sysfs(sysroot):
+    for name, v in (("capacity", "80"), ("status", "Discharging"), ("energy_full", "75328000"),
+                    ("energy_full_design", "80003000"), ("cycle_count", "0"), ("power_now", "12500000")):
+        _write(sysroot, f"sys/class/power_supply/BAT0/{name}", v)
+    info = battery.battery_info()
+    assert info["healthPct"] == 94.2 and info["cycles"] is None and info["powerW"] == 12.5
+
+
+# ------------------------------------------------------------------ lighting
+
+def test_lighting_colors():
+    assert lighting.parse_color("#FF0040") == (255, 0, 64)
+    assert lighting.parse_color("bogus") == (255, 255, 255)
+    assert lighting.battery_color(10, False) == ((255, 0, 0), "breathing")
+    assert lighting.battery_color(100, False) == ((0, 255, 0), "static")
+    assert lighting.battery_color(25, True)[1] == "breathing"
+
+
+def test_lighting_static_writes_sysfs(sysroot):
+    _write(sysroot, "sys/class/leds/ally:rgb:joystick_rings/brightness", "0")
+    _write(sysroot, "sys/class/leds/ally:rgb:joystick_rings/multi_intensity", "0 0 0 0")
+    m = _module(lighting.Lighting, {"enabled": True, "mode": "static", "color": "#ff0040", "brightness": 50})
+    asyncio.run(m.apply())
+    base = os.path.join(sysroot, "sys/class/leds/ally:rgb:joystick_rings")
+    assert open(os.path.join(base, "multi_intensity")).read() == " ".join([str(0xFF0040)] * 4)
+    assert open(os.path.join(base, "brightness")).read() == "128"
+    asyncio.run(m.set_override({"color": "#00ff00"}))
+    assert open(os.path.join(base, "multi_intensity")).read().startswith(str(0x00FF00))
+
+
+# ------------------------------------------------------------------ predecessors
+
+def test_conflicts_and_migration(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "HOME", str(tmp_path))
+    plugins = tmp_path / "homebrew/plugins"
+    (plugins / "Ally Fix").mkdir(parents=True)
+    (plugins / "Ally Fix/plugin.json").write_text("{}")
+    util.write_json(str(tmp_path / "homebrew/settings/Ally Fix/settings.json"), {
+        "vibration": {"enabled": True, "left": 40, "right": 40, "enhanced": True},
+        "gyro": {"enabled": True, "mode": "complex", "steam_cfg_prev": ""},
+        "gamepad_layout": {"enabled": True},
+        "cpu_boost": {"enabled": True, "refresh_on_charger": False},
+        "fan": {"enabled": True, "curves": {"balanced": {"temps": [1] * 8}}},
+    })
+    assert conflicts.blocked()["gyro"] == "Ally Fix"
+    reg = Registry(MODULES)
+    s = {"modules": reg.defaults()}
+    assert migrate.run(s, reg.defaults()) == []  # still installed: nothing imported yet
+    (plugins / "Ally Fix/plugin.json").unlink()
+    assert conflicts.blocked() == {}
+    s["modules"]["fan"]["enabled"] = True  # changed by the user already: left alone
+    assert migrate.run(s, reg.defaults()) == ["Ally Fix"]
+    assert s["modules"]["vibration"] == {**vibration.Vibration.defaults, "enabled": True, "left": 40, "right": 40,
+                                         "enhanced": True}
+    assert s["modules"]["gyro"]["mode"] == "complex" and s["modules"]["gamepad_layout"]["enabled"]
+    assert s["modules"]["cpu_boost"]["refreshOnCharger"] is False
+    assert s["modules"]["fan"]["curves"] == {}
+    assert migrate.run(s, reg.defaults()) == []  # once only
