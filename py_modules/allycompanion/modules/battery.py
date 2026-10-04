@@ -123,14 +123,19 @@ class Battery(Module):
                 self.update_cfg({"history": new})
             await asyncio.sleep(HISTORY_CHECK_S)
 
+    @staticmethod
+    def _read_limit() -> Optional[int]:
+        v = dbus.try_get_property(STEAMOS_MANAGER_BUS, STEAMOS_MANAGER_PATH, CHARGE_IFACE, "MaxChargeLevel", user_bus=True)
+        return v if isinstance(v, int) else None
+
     async def charge_full_once(self) -> None:
         if self.cfg.get("fullOnce") is not None:
             return
-        limit = dbus.get_property(STEAMOS_MANAGER_BUS, STEAMOS_MANAGER_PATH, CHARGE_IFACE, "MaxChargeLevel", user_bus=True)
+        limit = await asyncio.to_thread(self._read_limit)
         if not isinstance(limit, int) or limit <= 0:
             raise RuntimeError("no charge limit is set")
-        self.update_cfg({"fullOnce": limit})
-        await self.set_charge_limit(None)
+        await self._write_limit(None)
+        self.update_cfg({"fullOnce": limit})  # only once the limit is really lifted
         logger.info("[battery] charging to 100 %% once, then back to %d %%", limit)
         self._watch_full()
 
@@ -138,7 +143,7 @@ class Battery(Module):
         prev = self.cfg.get("fullOnce")
         await cancel_task(self._full_task)
         if prev is not None:
-            await self.set_charge_limit(int(prev))
+            await self._write_limit(int(prev))
             self.update_cfg({"fullOnce": None})
 
     def _watch_full(self) -> None:
@@ -147,10 +152,15 @@ class Battery(Module):
 
     async def _full_loop(self) -> None:
         while self.cfg.get("fullOnce") is not None:
+            if (await asyncio.to_thread(self._read_limit) or -1) > 0:
+                # someone set a limit meanwhile (Steam's own setting): theirs stays
+                self.update_cfg({"fullOnce": None})
+                await self.notify()
+                return
             info = await asyncio.to_thread(battery_info)
             if info.get("status") == "Full" or (info.get("capacity") or 0) >= 100:
                 prev = int(self.cfg["fullOnce"])
-                await self.set_charge_limit(prev)
+                await self._write_limit(prev)
                 self.update_cfg({"fullOnce": None})
                 logger.info("[battery] full; charge limit back to %d %%", prev)
                 await self.notify()
@@ -158,6 +168,13 @@ class Battery(Module):
             await asyncio.sleep(FULL_ONCE_POLL_S)
 
     async def set_charge_limit(self, level: Optional[int] = None) -> None:
+        """The slider: a limit chosen by hand ends a running "charge to 100 % once"."""
+        if self.cfg.get("fullOnce") is not None:
+            await cancel_task(self._full_task)
+            self.update_cfg({"fullOnce": None})
+        await self._write_limit(level)
+
+    async def _write_limit(self, level: Optional[int]) -> None:
         """level None or 100: no limit."""
         value = -1 if level is None or int(level) >= 100 else max(10, int(level))
         await asyncio.to_thread(dbus.set_property, STEAMOS_MANAGER_BUS, STEAMOS_MANAGER_PATH, CHARGE_IFACE,

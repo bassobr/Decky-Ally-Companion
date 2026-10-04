@@ -272,7 +272,7 @@ def test_repository_without_releases_is_not_an_error(monkeypatch):
 
 def test_cleanup_copies_both_packages_and_schedules(tmp_path, monkeypatch):
     from allycompanion import cleanup
-    monkeypatch.setattr(paths, "RUNTIME_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(cleanup, "STAGING", str(tmp_path / "staging"))
     calls = []
     monkeypatch.setattr(cleanup, "run", lambda cmd, **kw: calls.append(cmd) or util.Result(0, "", ""))
     assert cleanup.schedule()

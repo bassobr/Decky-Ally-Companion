@@ -10,7 +10,7 @@ import decky  # type: ignore
 
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), "py_modules"))
 
-from allycompanion import backup, cleanup, conflicts, deckyfix, device, diagnostics, live, migrate, paths, settings, steam, updater  # noqa: E402
+from allycompanion import backup, cleanup, userfs, conflicts, deckyfix, device, diagnostics, live, migrate, paths, settings, steam, updater  # noqa: E402
 from allycompanion.util import run  # noqa: E402
 from allycompanion.module import Context  # noqa: E402
 from allycompanion.modules import MODULES  # noqa: E402
@@ -156,7 +156,7 @@ class Plugin:
 
     async def restore_backup(self, name: str) -> Dict[str, Any]:
         data = await asyncio.to_thread(backup.read, name)
-        restored = await self.registry.restore(data["modules"])
+        restored = await self.registry.restore(data["modules"], backup.TRANSIENT)
         audio = self.registry.modules.get("audio")
         if audio and data.get("audio") and "audio" not in self.registry.blocked:
             await audio.restore(data["audio"])  # type: ignore[attr-defined]
@@ -195,23 +195,23 @@ class Plugin:
         return updater.check(state, decky.DECKY_PLUGIN_VERSION, fetch=False)
 
     async def prepare_update(self) -> Dict[str, Any]:
-        latest = self.settings["update"].get("latest")
+        # Asked fresh, never from the cache in settings.json (a file in a directory the user owns):
+        # a planted cache entry could point at an older, validly signed release.
+        latest = await asyncio.to_thread(updater.fetch_latest)
         if not latest:
-            latest = await asyncio.to_thread(updater.fetch_latest)
-            if not latest:
-                raise RuntimeError("no release published yet")
-            self.settings["update"]["latest"] = latest
-            self._save()
+            raise RuntimeError("no release published yet")
+        if not updater.is_newer(str(latest.get("version")), decky.DECKY_PLUGIN_VERSION):
+            raise RuntimeError(f"v{latest.get('version')} is not newer than v{decky.DECKY_PLUGIN_VERSION}")
+        self.settings["update"]["latest"] = latest
+        self._save()
         return await asyncio.to_thread(updater.verify_release, latest)
 
     # ---------------------------------------------------------------- diagnostics
     async def get_diagnostics(self) -> Dict[str, Any]:
         d = await asyncio.to_thread(diagnostics.collect, await self.registry.status())
         text = diagnostics.render_text(d)
-        try:
-            os.makedirs(paths.LOG_DIR, exist_ok=True)
-            with open(os.path.join(paths.LOG_DIR, "diagnostics.txt"), "w", encoding="utf-8") as f:
-                f.write(text + "\n")
+        try:  # the log directory belongs to the user
+            await asyncio.to_thread(userfs.write_text, os.path.join(paths.LOG_DIR, "diagnostics.txt"), text + "\n")
         except OSError:
             pass
         return {"text": text}

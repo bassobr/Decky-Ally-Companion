@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 from . import confgen, hardware, paths
 from .constants import INPUT_NODE
 from .log import logger
-from .util import atomic_copy, atomic_write_text, read_json, run, write_json
+from .util import atomic_copy, atomic_write_text, read_json, remove_file, run, write_json
 
 ACTIVE_CONF = os.path.join(paths.ACTIVE_DIR, "chain.conf")
 ACTIVE_IRS = os.path.join(paths.ACTIVE_DIR, "ir.irs")
@@ -138,9 +138,6 @@ def status(with_journal: bool = True) -> Dict[str, Any]:
 def remove_unit() -> None:
     stop()
     enable(False)
-    try:
-        os.unlink(paths.UNIT_PATH)
-    except OSError:
-        pass
+    remove_file(paths.UNIT_PATH)
     systemctl("daemon-reload")
     shutil.rmtree(paths.ACTIVE_DIR, ignore_errors=True)

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from typing import Any, Dict, Optional, Tuple
@@ -10,7 +9,7 @@ from typing import Any, Dict, Optional, Tuple
 from . import paths
 from .constants import GITHUB_REPO, PLUGIN_NAME, RELEASE_ZIP_TEMPLATE, UPDATE_CHECK_INTERVAL_S, UPDATE_RETRY_S, USER_AGENT
 from .log import logger
-from .minisign import verify_file
+from .minisign import verify_bytes
 from .util import run
 
 
@@ -84,10 +83,12 @@ def parse_sums(text: str) -> Dict[str, str]:
     return sums
 
 
-def _download_small(url: str, dest: str, timeout: int = 30) -> None:
-    r = run(["curl", "-fsSL", "--max-time", str(timeout), "-A", USER_AGENT, "-o", dest, url], timeout=timeout + 5)
+def _fetch_text(url: str, timeout: int = 30) -> str:
+    """Small release assets straight into memory: no files in the user-owned data directory."""
+    r = run(["curl", "-fsSL", "--max-time", str(timeout), "-A", USER_AGENT, url], timeout=timeout + 5)
     if not r.ok:
-        raise RuntimeError(f"download failed: {os.path.basename(dest)} (rc={r.rc})")
+        raise RuntimeError(f"download failed: {url.rsplit('/', 1)[-1]} (rc={r.rc})")
+    return r.out
 
 
 def verify_release(latest: Dict[str, Any], pubkey_path: str = paths.PUBKEY_FILE) -> Dict[str, Any]:
@@ -102,20 +103,17 @@ def verify_release(latest: Dict[str, Any], pubkey_path: str = paths.PUBKEY_FILE)
     sig_url = assets.get("SHA256SUMS.minisig")
     if not zip_url or not sums_url or not sig_url:
         raise RuntimeError("release is missing the zip, SHA256SUMS or SHA256SUMS.minisig asset")
-    os.makedirs(paths.TMP_DIR, exist_ok=True)
-    sums_path = os.path.join(paths.TMP_DIR, "SHA256SUMS")
-    sig_path = os.path.join(paths.TMP_DIR, "SHA256SUMS.minisig")
-    _download_small(sums_url, sums_path)
-    _download_small(sig_url, sig_path)
+    prefix = f"https://github.com/{GITHUB_REPO}/releases/download/v{version}/"
+    if not all(str(u).startswith(prefix) for u in (zip_url, sums_url, sig_url)):
+        raise RuntimeError("release assets come from an unexpected place")
+    sums_text = _fetch_text(sums_url)
+    sig_text = _fetch_text(sig_url)
     with open(pubkey_path, "r", encoding="utf-8") as f:
         pub_text = f.read()
-    with open(sig_path, "r", encoding="utf-8") as f:
-        sig_text = f.read()
-    ok, detail = verify_file(sums_path, sig_text, pub_text)
+    ok, detail = verify_bytes(sums_text.encode("utf-8"), sig_text, pub_text)
     if not ok:
         raise RuntimeError(f"signature check failed: {detail}")
-    with open(sums_path, "r", encoding="utf-8") as f:
-        sums = parse_sums(f.read())
+    sums = parse_sums(sums_text)
     sha = sums.get(zip_name)
     if not sha:
         raise RuntimeError(f"SHA256SUMS has no entry for {zip_name}")

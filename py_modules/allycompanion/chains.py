@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from allydsp import hardware
 from allydsp import paths as dsp_paths
-from allydsp.util import atomic_write_text, makedirs_user
+from allydsp.util import atomic_write_text, makedirs_user, remove_file
 
 from .log import logger
 from .util import run
@@ -84,11 +84,8 @@ class UserChain:
 
     def remove(self) -> None:
         self.stop()
-        for p in (self.unit_path, self.conf):
-            try:
-                os.unlink(p)
-            except OSError:
-                pass
+        remove_file(self.unit_path)
+        remove_file(self.conf)
         self.systemctl("daemon-reload")
 
 

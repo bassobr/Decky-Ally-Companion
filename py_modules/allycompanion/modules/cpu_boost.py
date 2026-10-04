@@ -63,6 +63,16 @@ class CpuBoost(Module):
             logger.exception("[cpu_boost] apply failed")
             self.last_error = str(e)
 
+    async def set_enabled(self, on: bool) -> None:
+        """The switch on the page; a running game's profile still decides while it runs."""
+        self.update_cfg({"enabled": bool(on)})
+        self.last_error = ""
+        try:
+            await (self.apply() if self.active else self.revert())
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[%s] %s failed", self.id, "apply" if self.active else "revert")
+            self.last_error = str(e)
+
     async def set_override(self, values: Optional[Dict[str, Any]]) -> None:
         """Game profile {"boost": bool}; None goes back to the setting."""
         new = None if not values or "boost" not in values else not bool(values["boost"])

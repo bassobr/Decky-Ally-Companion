@@ -102,8 +102,10 @@ class Registry:
         # bundle) that some supported() checks look for are already gone.
         await self._each("uninstall", only_supported=False, skip_blocked=False)
 
-    async def restore(self, sections: Dict[str, Any]) -> List[str]:
-        """Replace module sections (from a backup) and bring the hardware in line; returns the ids."""
+    async def restore(self, sections: Dict[str, Any], keep: Optional[Dict[str, Any]] = None) -> List[str]:
+        """Replace module sections (from a backup) and bring the hardware in line; returns the ids.
+        `keep` names per module the runtime keys that stay as they are (a full charge in progress,
+        the battery history, the performance profile to restore after a game)."""
         done = []
         for mid, data in sections.items():
             m = self.modules.get(mid)
@@ -111,6 +113,9 @@ class Registry:
                 continue
             was_enabled = m.enabled
             new = settings_mod.merge(dict(m.defaults), data)
+            for k in (keep or {}).get(mid, ()):
+                if k in m.cfg:
+                    new[k] = m.cfg[k]
             m.cfg.clear()
             m.cfg.update(new)  # same dict object as in the settings tree
             done.append(mid)

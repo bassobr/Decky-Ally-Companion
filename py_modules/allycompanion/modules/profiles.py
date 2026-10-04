@@ -49,7 +49,7 @@ class Profiles(Module):
         return dict(a) if isinstance(a, dict) else {}
 
     def details(self) -> Dict[str, Any]:
-        if self._perf_profiles is None:
+        if not self._perf_profiles:  # steamos-manager may not be up yet: ask again next time
             v = dbus.try_get_property(STEAMOS_MANAGER_BUS, STEAMOS_MANAGER_PATH, PERF_IFACE,
                                       "AvailablePerformanceProfiles", user_bus=True)
             self._perf_profiles = [str(x) for x in v] if isinstance(v, list) else []

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.1 (2026-10-04)
+
+Security (found in a review; a process running as the Decky user could gain root):
+- The uninstall cleanup code is staged in /run (root only) instead of the user-owned data
+  directory it was executed from as root.
+- The root backend no longer writes into the user's directories itself (Steam client shim and
+  drop-in, steam_dev.cfg, backups, diagnostics, audio configs and units, BIOS download): a child
+  process running as the user does, so symlinks planted there cannot redirect root's writes.
+- BIOS download entries are checked before they become paths or URLs.
+- Updates: signatures are checked in memory, the release is asked for afresh before installing, and
+  only a newer version from this repository's releases is accepted (no downgrade through a planted
+  cache entry).
+- install.sh verifies with a pinned public key and a verifier from the repository, not with key and
+  code from the zip it checks.
+- Fan curves from the settings file are range-checked before they reach sysfs.
+
+Fixes:
+- Restoring a backup keeps a running "charge to 100 % once", the battery history and the
+  performance profile to restore after a game.
+- The CPU boost and fan switches respect a running game's profile.
+- A charge limit set by hand (or in Steam) ends "charge to 100 % once" instead of being
+  overwritten when the battery is full; the full charge is only marked once the limit is lifted.
+- The list of performance profiles is asked again when steamos-manager was not up at start.
+
 ## 0.3.0 (2026-10-04)
 
 - Steam's settings menu has an "Ally Companion" entry that opens the fullscreen view.

@@ -83,6 +83,16 @@ class Fan(Module):
             logger.exception("[fan] apply failed")
             self.last_error = str(e)
 
+    async def set_enabled(self, on: bool) -> None:
+        """The switch on the page; a running game's profile still decides while it runs."""
+        self.update_cfg({"enabled": bool(on)})
+        self.last_error = ""
+        try:
+            await (self.apply() if self.active else self.revert())
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[%s] %s failed", self.id, "apply" if self.active else "revert")
+            self.last_error = str(e)
+
     async def set_override(self, values: Optional[Dict[str, Any]]) -> None:
         """Game profile {"curve": {...}}; None goes back to the pinned or firmware curve."""
         new = sanitize(values["curve"]) if values and values.get("curve") else None
@@ -185,6 +195,11 @@ class Fan(Module):
                 self._save_snapshot(profile, curve)
                 return f"captured curve for {profile}"
             return ""
+        if valid(snap):
+            try:
+                snap = sanitize(snap)
+            except (TypeError, ValueError):
+                snap = None
         if not valid(snap):
             self._write_enable(3)  # loads the factory curve of the current profile
             curve = self.read_curve()

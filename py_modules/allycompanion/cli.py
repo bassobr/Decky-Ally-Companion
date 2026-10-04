@@ -32,6 +32,7 @@ def run_cleanup() -> int:
         return 0
     asyncio.run(_uninstall_all())
     shutil.rmtree(paths.RUNTIME_DIR, ignore_errors=True)
+    shutil.rmtree(cleanup.STAGING, ignore_errors=True)
     logger.info("Ally Companion removed: modules reverted, runtime data deleted")
     return 0
 

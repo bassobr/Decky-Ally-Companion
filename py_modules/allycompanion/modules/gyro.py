@@ -26,7 +26,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import dbus, device, steam
+from .. import dbus, device, steam, userfs
 from ..constants import INPUTPLUMBER_BUS
 from ..log import logger
 from ..module import Module
@@ -287,18 +287,9 @@ class Gyro(Module):
         if not os.path.isdir(os.path.dirname(path)):
             raise RuntimeError(f"Steam directory not found: {os.path.dirname(path)}")
         if new is None:
-            os.remove(path)
+            userfs.remove(path)
         else:
-            st = os.stat(path) if text is not None else None
-            tmp = path + ".tmp"
-            with open(tmp, "w", encoding="utf-8", newline="") as f:
-                f.write(new)
-            os.chmod(tmp, st.st_mode & 0o777 if st else 0o644)
-            if st:
-                os.chown(tmp, st.st_uid, st.st_gid)
-            else:
-                steam.chown_user(tmp)
-            os.replace(tmp, path)
+            userfs.write(path, new.encode("utf-8"), 0o644)
         logger.info("[gyro] %s %s in steam_dev.cfg", "wrote" if present else "removed", CONVAR)
 
     async def _restart_inputplumber(self) -> None:

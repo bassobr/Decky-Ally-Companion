@@ -17,10 +17,9 @@ import json
 import os
 import re
 import time
-import zipfile
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import device, paths, steam
+from .. import device, paths, userfs
 from ..constants import USER_AGENT
 from ..log import logger
 from ..module import Module
@@ -38,6 +37,7 @@ KEYWORDS = re.compile(r"\b(rog|ally|asus|inputplumber|xbox)\b", re.I)
 CHANNELS = {"rel": ("stable",), "rc": ("stable",), "beta": ("stable", "beta"), "bc": ("stable", "beta"),
             "preview": ("stable", "beta", "preview"), "pc": ("stable", "beta", "preview"),
             "main": ("stable", "beta", "preview")}
+SAFE_NAME = re.compile(r"[A-Za-z0-9._-]{1,32}")
 _VERSION = re.compile(r"SteamOS\s+(\d+)\.(\d+)(?:\.(\d+))?\s*(Beta|Preview)?", re.I)
 
 
@@ -212,11 +212,15 @@ class News(Module):
         return await asyncio.to_thread(self._download, item)
 
     def _download(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        dest_dir = os.path.join(paths.HOME, "Downloads", f"BIOS-{device.board()}-{item['version']}")
-        steam.mkdir_user(dest_dir)
-        archive = os.path.join(dest_dir, os.path.basename(item["url"]))
-        r = run(["curl", "-fsSL", "--max-time", "600", "-A", USER_AGENT, "-o", archive, item["url"]], timeout=620,
-                as_user=True)
+        # The item comes from settings.json, which sits in a directory the user owns: check what
+        # goes into paths and URLs, and do every file operation as the user.
+        version, url = str(item.get("version", "")), str(item.get("url", ""))
+        if not SAFE_NAME.fullmatch(version) or not url.startswith(ASUS_CDN + "/") or ".." in url:
+            raise RuntimeError("unexpected BIOS entry; refresh the news")
+        dest_dir = os.path.join(paths.HOME, "Downloads", f"BIOS-{device.board()}-{version}")
+        archive = os.path.join(dest_dir, os.path.basename(url))
+        userfs.mkdir(dest_dir)
+        r = run(["curl", "-fsSL", "--max-time", "600", "-A", USER_AGENT, "-o", archive, url], timeout=620, as_user=True)
         if not r.ok:
             raise RuntimeError(f"download failed (rc={r.rc}): {r.err.strip()[:160]}")
         h = hashlib.sha256()
@@ -224,18 +228,8 @@ class News(Module):
             for chunk in iter(lambda: f.read(1 << 20), b""):
                 h.update(chunk)
         if item.get("sha256") and h.hexdigest() != item["sha256"]:
-            os.remove(archive)
+            userfs.remove(archive)
             raise RuntimeError("checksum mismatch; the file was deleted")
-        files = []
-        if archive.endswith(".zip"):
-            with zipfile.ZipFile(archive) as z:
-                for name in z.namelist():
-                    if name.endswith("/") or ".." in name:
-                        continue
-                    target = os.path.join(dest_dir, os.path.basename(name))
-                    with z.open(name) as src, open(target, "wb") as dst:
-                        dst.write(src.read())
-                    steam.chown_user(target)
-                    files.append(os.path.basename(name))
-        logger.info("[news] BIOS %s downloaded to %s", item["version"], dest_dir)
+        files = userfs.unzip(archive, dest_dir) if archive.endswith(".zip") else []
+        logger.info("[news] BIOS %s downloaded to %s", version, dest_dir)
         return {"dir": dest_dir, "files": files}

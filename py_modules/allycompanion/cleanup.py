@@ -16,17 +16,21 @@ from .log import logger
 from .util import run
 
 UNIT = "ally-companion-cleanup"
+STAGING = "/run/ally-companion-cleanup"
 PACKAGES = ("allycompanion", "allydsp")
 DELAY_S = 60
 
 
 def copy_dir() -> str:
-    return os.path.join(paths.RUNTIME_DIR, "cleanup")
+    # Root-only (/run is root's): the code runs as root a minute later, so it must not sit in a
+    # directory the user can write to, such as the plugin's data directory.
+    return STAGING
 
 
 def schedule() -> bool:
     py_modules = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     shutil.rmtree(copy_dir(), ignore_errors=True)
+    os.makedirs(copy_dir(), mode=0o700)
     for pkg in PACKAGES:  # the plugin directory is gone when the cleanup runs
         shutil.copytree(os.path.join(py_modules, pkg), os.path.join(copy_dir(), pkg),
                         ignore=shutil.ignore_patterns("__pycache__"))

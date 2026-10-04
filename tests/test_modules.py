@@ -362,3 +362,105 @@ def test_autoeq_index_search_and_profile():
     assert 'filter.smart.target = { node.name = "alsa_output.x" }' in conf
     with pytest.raises(ValueError):
         headphones.parse_parametric("Preamp: 0 dB")
+
+
+# ------------------------------------------------------------------ review fixes and hardening
+
+def test_userfs_helper_writes_removes_and_unzips(tmp_path):
+    import zipfile
+    from allycompanion import userfs
+    target = tmp_path / "a" / "b" / "file.txt"
+    userfs.write(str(target), b"hello", 0o600)
+    assert target.read_bytes() == b"hello" and oct(target.stat().st_mode & 0o777) == "0o600"
+    z = tmp_path / "x.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("../../evil.cap", b"x")  # path parts are dropped
+        zf.writestr("dir/RC73XA.CAP", b"y")
+    assert sorted(userfs.unzip(str(z), str(tmp_path / "a"))) == ["RC73XA.CAP", "evil.cap"]
+    assert (tmp_path / "a" / "evil.cap").exists() and not (tmp_path.parent / "evil.cap").exists()
+    userfs.remove(str(target), str(tmp_path / "missing"))
+    assert not target.exists()
+
+
+def test_bios_download_refuses_tampered_entries(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "HOME", str(tmp_path))
+    m = _module(news.News)
+    for bad in ({"version": "../../etc", "url": news.ASUS_CDN + "/x.zip"},
+                {"version": "317", "url": "https://evil.example/x.zip"},
+                {"version": "317", "url": news.ASUS_CDN + "/../x.zip"}):
+        with pytest.raises(RuntimeError):
+            m._download(bad)
+
+
+def test_release_signature_is_checked_in_memory(monkeypatch):
+    from allycompanion import minisign, updater
+    seed, pub = minisign.generate_keypair("test")
+    sums = "a" * 64 + "  ally-companion-9.9.9.zip\n"
+    sig = minisign.sign_bytes(sums.encode(), seed, pub, "ally-companion v9.9.9")
+    base = "https://github.com/bassobr/Decky-Ally-Companion/releases/download/v9.9.9/"
+    assets = {"ally-companion-9.9.9.zip": base + "z.zip", "SHA256SUMS": base + "s", "SHA256SUMS.minisig": base + "m"}
+    monkeypatch.setattr(updater, "_fetch_text", lambda url, timeout=30: sums if url.endswith("/s") else sig)
+    import builtins
+    real_open = builtins.open
+    monkeypatch.setattr(builtins, "open", lambda p, *a, **k: __import__("io").StringIO(pub) if p == "PUB" else real_open(p, *a, **k))
+    res = updater.verify_release({"version": "9.9.9", "assets": assets}, "PUB")
+    assert res["hash"] == "a" * 64
+    monkeypatch.setattr(updater, "_fetch_text", lambda url, timeout=30: sums.replace("a", "b") if url.endswith("/s") else sig)
+    with pytest.raises(RuntimeError):
+        updater.verify_release({"version": "9.9.9", "assets": assets}, "PUB")
+    foreign = dict(assets, **{"ally-companion-9.9.9.zip": "https://evil.example/z.zip"})
+    with pytest.raises(RuntimeError):
+        updater.verify_release({"version": "9.9.9", "assets": foreign}, "PUB")
+
+
+def test_toggles_follow_game_profile_overrides(sysroot):
+    _write(sysroot, "sys/devices/system/cpu/cpufreq/boost", "1")
+    _write(sysroot, "sys/class/dmi/id/sys_vendor", "ASUSTeK COMPUTER INC.")
+    m = _module(cpu_boost.CpuBoost, {"enabled": False})
+    calls = []
+
+    async def apply():
+        calls.append("apply")
+
+    async def revert():
+        calls.append("revert")
+
+    m.apply, m.revert = apply, revert
+    asyncio.run(m.set_override({"boost": True}))  # this game wants boost
+    asyncio.run(m.set_enabled(True))  # switch flipped mid-game
+    assert calls[-1] == "revert"  # boost stays on until the game ends
+    asyncio.run(m.set_override({"boost": False}))
+    asyncio.run(m.set_enabled(False))
+    assert calls[-1] == "apply"  # this game keeps boost off
+
+
+def test_restore_keeps_runtime_state(monkeypatch):
+    from allycompanion.registry import Registry
+    reg = Registry([battery.Battery, profiles.Profiles])
+    s = {"modules": reg.defaults()}
+
+    async def emit(e, p):
+        pass
+
+    reg.bind(s, Context(lambda: None, emit))
+    monkeypatch.setattr("allycompanion.conflicts.blocked", lambda: {})
+    s["modules"]["battery"].update({"fullOnce": 80, "history": [{"d": "2026-10-01", "h": 94.0}]})
+    s["modules"]["profiles"]["perfBaseline"] = "balanced"
+    for m in reg.modules.values():
+        m.supported = lambda: (False, "test")  # no hardware work
+    from allycompanion import backup
+    asyncio.run(reg.restore({"battery": {}, "profiles": {"apps": {"1": {"name": "x"}}}}, backup.TRANSIENT))
+    assert s["modules"]["battery"]["fullOnce"] == 80 and s["modules"]["battery"]["history"][0]["h"] == 94.0
+    assert s["modules"]["profiles"]["perfBaseline"] == "balanced" and s["modules"]["profiles"]["apps"] == {"1": {"name": "x"}}
+
+
+def test_manual_limit_ends_full_charge(monkeypatch):
+    m = _module(battery.Battery, {"fullOnce": 80})
+    written = []
+
+    async def write(level):
+        written.append(level)
+
+    monkeypatch.setattr(m, "_write_limit", write)
+    asyncio.run(m.set_charge_limit(70))
+    assert written == [70] and m.cfg["fullOnce"] is None

@@ -38,11 +38,24 @@ def _drop() -> Dict[str, object]:
     return {} if uid == 0 else {"user": uid, "group": gid, "extra_groups": os.getgrouplist(paths.USER, gid)}
 
 
-def chown_user(path: str) -> None:
-    """Files the root backend writes below the user's home stay the user's."""
-    if os.geteuid() == 0:
-        uid, gid = user_ids()
-        os.chown(path, uid, gid)
+def _userfs():
+    """Inside the root backend, file operations below the home go through allycompanion.userfs
+    (a child process as the user), so symlinks planted by the user cannot redirect them."""
+    if os.geteuid() != 0:
+        return None
+    from allycompanion import userfs  # root context only; the worker runs as the user
+    return userfs
+
+
+def remove_file(path: str) -> None:
+    fs = _userfs()
+    if fs:
+        fs.remove(path)
+        return
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
 
 
 def user_env(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -94,27 +107,27 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def makedirs_user(path: str) -> None:
-    """mkdir -p whose new directories belong to the user, also when root creates them."""
-    missing = []
-    d = path
-    while d and not os.path.isdir(d):
-        missing.append(d)
-        d = os.path.dirname(d)
-    for m in reversed(missing):
-        os.makedirs(m, exist_ok=True)
-        chown_user(m)
+    """mkdir -p as the user, also when called from the root backend."""
+    fs = _userfs()
+    if fs:
+        fs.mkdir(path)
+    else:
+        os.makedirs(path, exist_ok=True)
 
 
 def atomic_write_bytes(path: str, data: bytes, mode: int = 0o644) -> None:
+    fs = _userfs()
+    if fs:
+        fs.write(path, data, mode)
+        return
     d = os.path.dirname(path) or "."
-    makedirs_user(d)
+    os.makedirs(d, exist_ok=True)
     tmp = os.path.join(d, f".tmp-{os.getpid()}-{os.urandom(4).hex()}")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
         os.chmod(tmp, mode)
-        chown_user(tmp)
         os.replace(tmp, path)
     except Exception:
         try:

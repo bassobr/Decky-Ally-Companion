@@ -7,12 +7,13 @@ import re
 import time
 from typing import Any, Dict, List
 
-from . import paths, steam
+from . import paths, userfs
 from .constants import PLUGIN_NAME
 
 # per-module state that is not a setting and must not travel between installations
 TRANSIENT = {"news": ("items", "fetchedAt", "lastAttempt", "error", "channel", "notified"),
-             "battery": ("fullOnce", "history")}
+             "battery": ("fullOnce", "history"),
+             "profiles": ("perfBaseline",)}
 NAME = re.compile(r"^ally-companion-\d{8}-\d{6}\.json$")
 
 
@@ -27,9 +28,8 @@ def build(modules: Dict[str, Any], audio: Dict[str, Any], version: str) -> Dict[
 
 
 def write(data: Dict[str, Any]) -> str:
-    steam.mkdir_user(backup_dir())
     name = f"ally-companion-{time.strftime('%Y%m%d-%H%M%S')}.json"
-    steam.write_user(os.path.join(backup_dir(), name), (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode(), 0o644)
+    userfs.write(os.path.join(backup_dir(), name), (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode(), 0o644)
     return name
 
 

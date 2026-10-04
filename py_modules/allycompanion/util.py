@@ -94,12 +94,14 @@ def read_text(path: str, default: Optional[str] = None) -> Optional[str]:
 def atomic_write_bytes(path: str, data: bytes, mode: int = 0o644) -> None:
     d = os.path.dirname(path) or "."
     os.makedirs(d, exist_ok=True)
-    tmp = os.path.join(d, f".tmp-{os.getpid()}-{os.urandom(4).hex()}")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    tmp = os.path.join(d, f".tmp-{os.getpid()}-{os.urandom(8).hex()}")
+    # O_EXCL|O_NOFOLLOW and fchmod: the directory may belong to the user, who must not be able to
+    # point the temporary file elsewhere
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
-        os.chmod(tmp, mode)
+            os.fchmod(f.fileno(), mode)
         os.replace(tmp, path)
     except Exception:
         try:

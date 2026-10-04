@@ -21,7 +21,7 @@ import os
 import shlex
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import device, paths, steam
+from .. import device, paths, steam, userfs
 from ..log import logger
 from ..module import Module
 
@@ -220,16 +220,9 @@ class GamepadLayout(Module):
         self.ui_result = None
         changed = self._remove_legacy()
         if os.path.exists(dropin()):
-            os.remove(dropin())
             changed = True
-        for dst in libs():
-            if os.path.exists(dst):
-                os.remove(dst)
-        for d in [*(os.path.dirname(p) for p in libs()), lib_dir()]:
-            try:
-                os.rmdir(d)
-            except OSError:
-                pass
+        userfs.remove(dropin(), *libs())
+        userfs.rmdir(*(os.path.dirname(p) for p in libs()), lib_dir())
         if changed:
             logger.info("[gamepad_layout] drop-in removed")
             await steam.daemon_reload()
@@ -239,15 +232,8 @@ class GamepadLayout(Module):
         legacy = os.path.join(steam.dropin_dir(), LEGACY_DROPIN_NAME)
         if not os.path.exists(legacy):
             return False
-        os.remove(legacy)
-        legacy_dir = os.path.join(paths.HOME, ".local", "lib", LEGACY_LIB_DIRNAME)
-        for root, dirs, files in os.walk(legacy_dir, topdown=False):
-            for f in files:
-                os.remove(os.path.join(root, f))
-            for d in dirs:
-                os.rmdir(os.path.join(root, d))
-        if os.path.isdir(legacy_dir):
-            os.rmdir(legacy_dir)
+        userfs.remove(legacy)
+        userfs.rmtree(os.path.join(paths.HOME, ".local", "lib", LEGACY_LIB_DIRNAME))
         logger.info("[gamepad_layout] Ally Fix's drop-in removed")
         return True
 

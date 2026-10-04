@@ -11,7 +11,7 @@ import asyncio
 import os
 from typing import Any, Dict, List, Optional
 
-from . import paths
+from . import paths, userfs
 from .log import logger
 from .util import Result, run, user_ids
 
@@ -27,32 +27,13 @@ def steam_dir() -> str:
     return os.path.join(paths.HOME, ".local", "share", "Steam")
 
 
-def chown_user(path: str) -> None:
-    if os.geteuid() == 0:
-        uid, gid = user_ids()
-        os.chown(path, uid, gid)
-
-
 def mkdir_user(path: str) -> None:
-    """mkdir -p that leaves the directories it creates owned by the user, not root."""
-    missing: List[str] = []
-    d = path
-    while d and not os.path.isdir(d):
-        missing.append(d)
-        d = os.path.dirname(d)
-    for m in reversed(missing):
-        os.mkdir(m, 0o755)
-        chown_user(m)
+    """mkdir -p as the user (see userfs: root must not write into the user's directories)."""
+    userfs.mkdir(path)
 
 
 def write_user(path: str, data: bytes, mode: int) -> None:
-    mkdir_user(os.path.dirname(path))
-    tmp = path + ".tmp"
-    with open(tmp, "wb") as f:
-        f.write(data)
-    os.chmod(tmp, mode)
-    chown_user(tmp)
-    os.replace(tmp, path)
+    userfs.write(path, data, mode)
 
 
 async def user_systemctl(*args: str, timeout: float = 30.0) -> Result:

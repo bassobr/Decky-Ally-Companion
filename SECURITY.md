@@ -22,6 +22,27 @@ On removal, CPU boost, fan control, vibration strength and Enhanced Vibration go
 firmware defaults. The charge limit, MCU power saving, the boot sound and the last ring colour stay
 as they were set.
 
+## Root and the user's files
+
+Decky gives the plugin settings and data directories that belong to the Decky user, and the
+modules work in the user's home (Steam's config, `~/.config`, `~/.local`, `~/Documents`). Any
+process running as that user could plant symlinks there or swap files, so the root backend:
+
+- writes, creates and removes nothing below the home itself; a child process running as the user
+  does it (`py_modules/allycompanion/userfs.py`), so a redirected write lands only where the user
+  could write anyway;
+- writes its own root-owned `settings.json` with `O_EXCL|O_NOFOLLOW` and `fchmod`;
+- stages the uninstall cleanup code in `/run/ally-companion-cleanup` (root, 0700), never in the
+  user-owned data directory, because it runs as root a minute later;
+- verifies update signatures in memory and asks GitHub afresh before an update, accepting only a
+  newer version whose assets come from this repository's releases;
+- treats values read from `settings.json` as untrusted: fan curves are range-checked before they
+  reach sysfs, BIOS download entries are checked before they become paths or URLs.
+
+What a process running as the user can still do is change the settings this plugin applies,
+within the checked ranges (vibration strength, lighting, fan curves, profiles). That needs no
+privilege it does not already have for its own games and Steam configuration.
+
 ## Reporting a vulnerability
 
 Please use GitHub's private vulnerability reporting:
@@ -43,7 +64,8 @@ versions can be reinstalled with `install.sh`.
 - The updater verifies the signature against the public key pinned in the plugin (`minisign.pub`)
   before trusting any checksum, then hands the zip URL and its SHA-256 to Decky Loader, which
   downloads the zip and rejects it on a checksum mismatch. Unsigned releases are refused.
-- `install.sh` verifies checksum and signature before installing.
+- `install.sh` verifies checksum and signature before installing, with the public key pinned in
+  the script and the verifier fetched from this repository, not from the zip it checks.
 - Manual check: `minisign -Vm SHA256SUMS -p minisign.pub`.
 - Limits: the signing seed lives in a GitHub Actions secret, so a full account takeover could still
   produce valid signatures. minisign has no revocation; a compromised key requires an out-of-band

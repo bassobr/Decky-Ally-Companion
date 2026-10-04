@@ -15,6 +15,7 @@ Decky Loader ── backend "Ally Companion" (root, flag "root")
                  ├─ uevent       netlink kobject uevents (charger, hid re-enumeration)
                  ├─ dbus         busctl --json: InputPlumber (system bus), steamos-manager (session bus)
                  ├─ util.run     root by default; as_user=True drops to the Decky user's session
+                 ├─ userfs       file operations below the home, done by a child as the user
                  ├─ ally_hid     MCU feature reports on the controller's config interface
                  ├─ hidbpf       rumble packet filter (HID-BPF struct_ops via libbpf)
                  ├─ steam        steam-launcher.service, client process, drop-in helpers
