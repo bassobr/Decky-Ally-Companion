@@ -1,0 +1,3 @@
+# Verified on SteamOS 3.8.16 (Python 3.13.5); the installer falls back to unpinned versions.
+numpy==2.5.3
+scipy==1.18.1

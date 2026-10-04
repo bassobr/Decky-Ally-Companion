@@ -8,10 +8,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 NAME="Ally Companion"
 export PATH="/opt/homebrew/bin:$PATH"
 pnpm build >/dev/null
+[ -d bin/lv2/lsp-plugins.lv2 ] || scripts/fetch-lsp.sh
+[ -f defaults/converter/dolby_to_pipewire.py ] || scripts/assemble-converter.sh >/dev/null
 rm -rf out/deploy; mkdir -p "out/deploy/$NAME/dist"
 cp plugin.json package.json main.py decky.pyi LICENSE THIRD_PARTY_LICENSES.md README.md minisign.pub "out/deploy/$NAME/"
 cp dist/index.js "out/deploy/$NAME/dist/"
-cp -R py_modules bin "out/deploy/$NAME/"
+cp -R py_modules bin defaults "out/deploy/$NAME/"
 find "out/deploy/$NAME" -name "__pycache__" -type d -prune -exec rm -rf {} +
 ssh "$HOST" 'rm -rf /tmp/ally-companion-deploy && mkdir -p /tmp/ally-companion-deploy'
 COPYFILE_DISABLE=1 tar --no-xattrs -C out/deploy --exclude "._*" --exclude ".DS_Store" -cf - "$NAME" | ssh "$HOST" 'tar -C /tmp/ally-companion-deploy -xf -'

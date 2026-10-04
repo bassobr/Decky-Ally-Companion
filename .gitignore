@@ -17,3 +17,7 @@ local/
 *.log
 .cache/
 src/version.ts
+
+# audio module build pieces (assembled by scripts)
+defaults/converter/
+bin/lv2/

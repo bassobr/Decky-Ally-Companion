@@ -1,6 +1,7 @@
-import { ButtonItem, Field, PanelSection, PanelSectionRow, SliderField } from "@decky/ui";
+import { ButtonItem, DropdownItem, Field, PanelSection, PanelSectionRow, SliderField } from "@decky/ui";
 import { toaster } from "@decky/api";
 import { useEffect, useState } from "react";
+import { appName } from "../appWatcher";
 import { installUpdate } from "../backend";
 import { useDebounced } from "../hooks/useDebounced";
 import { openPage } from "../navigation";
@@ -22,6 +23,39 @@ function reopenWithNewUi(): void {
   } catch {
     /* the stale-UI row stays as a hint */
   }
+}
+
+/** Speaker preset for what is running now: off, the default, or a profile (per game while one runs). */
+function Sound() {
+  const m = usePluginState().state?.modules.audio;
+  if (!m || !isActive(m) || !m.details.setup?.done) return null;
+  const d = m.details;
+  const appId: string | null = d.runningApp;
+  const per = appId ? d.perApp?.[appId] : undefined;
+  const profiles: { id: string; label: string }[] = d.profiles ?? [];
+  const OFF = "__off", DEFAULT = "__default";
+  const options = [
+    { data: OFF, label: "Off" },
+    ...(appId ? [{ data: DEFAULT, label: `Default (${profiles.find((p) => p.id === d.global?.profile)?.label ?? "–"})` }] : []),
+    ...profiles.map((p) => ({ data: p.id, label: p.label })),
+  ];
+  const selected = !m.enabled ? OFF : appId ? (per ? per.profile : DEFAULT) : d.global?.profile;
+  const pick = async (v: string) => {
+    if (v === OFF) return void mod.enable("audio", false);
+    if (!m.enabled) await mod.enable("audio", true);
+    if (v === DEFAULT) return void mod.action("audio", "set_per_app", { appId, entry: null });
+    if (appId) {
+      const voicing = per?.voicing ?? d.global?.voicing;
+      return void mod.action("audio", "set_per_app", { appId, entry: { profile: v, voicing, enabled: true, name: appName(appId) } });
+    }
+    return void mod.action("audio", "set_global", { profile: v, voicing: d.global?.voicing });
+  };
+  return (
+    <PanelSectionRow>
+      <DropdownItem label={appId ? `Sound: ${appName(appId)}` : "Sound"} rgOptions={options} selectedOption={selected}
+        onChange={(o) => void pick(o.data)} />
+    </PanelSectionRow>
+  );
 }
 
 function LightBrightness() {
@@ -92,6 +126,7 @@ export function QuickAccess() {
           <ButtonItem layout="below" onClick={() => void restartSteam()}>Restart Steam to apply</ButtonItem>
         </PanelSectionRow>
       )}
+      <Sound />
       <LightBrightness />
       {state.update.updateAvailable && state.update.latestVersion && (
         <PanelSectionRow>

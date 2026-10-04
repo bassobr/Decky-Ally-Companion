@@ -38,6 +38,25 @@ const onModules = (all: Record<string, ModuleStatus>) => {
   cache = { ...cache, modules: all };
   notify();
 };
+/** Setup and reconversion progress of the audio module, merged into its details. */
+const onAudioProgress = (ev: { kind: "setup" | "convert"; status?: string; [k: string]: any }) => {
+  const m = cache?.modules.audio;
+  if (!m) return;
+  const { kind, ...rest } = ev;
+  const setup = { ...(m.details.setup ?? {}) };
+  // setup steps report done/skipped on the way; only the "finished" event ends the run
+  const finished = kind === "setup" ? rest.step === "finished" : rest.status !== "running";
+  if (kind === "setup") {
+    setup.last = rest;
+    setup.inProgress = !finished;
+  } else {
+    setup.convertLast = rest;
+    setup.converting = !finished;
+  }
+  store.patchModule({ ...m, details: { ...m.details, setup } });
+  if (finished) void store.refresh();
+};
+
 const onUpdate = (u: UpdateInfo) => {
   if (!cache) return;
   cache = { ...cache, update: u };
@@ -48,6 +67,7 @@ export function connectEvents(): void {
   addEventListener<[ModuleStatus]>("module_status", onModule);
   addEventListener<[Record<string, ModuleStatus>]>("modules", onModules);
   addEventListener<[UpdateInfo]>("update_state", onUpdate);
+  addEventListener<[any]>("audio_progress", onAudioProgress);
   void store.refresh();
 }
 
@@ -55,6 +75,7 @@ export function disconnectEvents(): void {
   removeEventListener("module_status", onModule);
   removeEventListener("modules", onModules);
   removeEventListener("update_state", onUpdate);
+  removeEventListener("audio_progress", onAudioProgress);
 }
 
 export function usePluginState() {

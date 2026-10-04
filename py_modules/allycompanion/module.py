@@ -103,6 +103,9 @@ class Module:
         """Extra calls the UI may make: name -> coroutine function taking keyword arguments."""
         return {}
 
+    async def prepare(self, blocked_by: Optional[str]) -> None:
+        """Plugin start, before start() and also while another plugin blocks the module."""
+
     async def start(self) -> None:
         """Plugin start: re-apply what the settings say."""
         await self.reapply_if_enabled()

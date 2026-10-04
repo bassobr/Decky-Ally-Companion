@@ -1,0 +1,3 @@
+[submodule "third_party/speaker-tuning-to-easyeffects"]
+	path = third_party/speaker-tuning-to-easyeffects
+	url = https://github.com/antoinecellerier/speaker-tuning-to-easyeffects.git

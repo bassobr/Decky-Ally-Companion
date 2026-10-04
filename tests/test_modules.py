@@ -44,7 +44,7 @@ def _module(cls, cfg=None):
 
 def test_all_modules_have_unique_ids_and_json_defaults():
     reg = Registry(MODULES)
-    assert list(reg.modules) == ["vibration", "gyro", "gamepad_layout", "cpu_boost", "fan", "battery", "lighting"]
+    assert list(reg.modules) == ["audio", "vibration", "gyro", "gamepad_layout", "cpu_boost", "fan", "battery", "lighting"]
     util.write_json  # defaults must be JSON-serialisable
     import json
     json.dumps(reg.defaults())

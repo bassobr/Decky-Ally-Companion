@@ -72,6 +72,13 @@ class Registry:
 
     async def start(self) -> None:
         self.refresh_blocked()
+        for mid, m in self.modules.items():
+            if not m.supported()[0]:
+                continue
+            try:
+                await m.prepare(self.blocked.get(mid))
+            except Exception:  # noqa: BLE001
+                logger.exception("[%s] prepare failed", mid)
         await self._each("start")
 
     async def stop(self) -> None:

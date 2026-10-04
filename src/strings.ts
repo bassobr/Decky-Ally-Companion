@@ -50,10 +50,6 @@ export const t = {
 
 /** What each planned page will hold; shown until its module exists. */
 export const plannedPages: Record<string, string[]> = {
-  audio: [
-    "Dolby speaker tuning as a PipeWire filter chain (from Ally DSP)",
-    "Presets per game, headphone detection",
-  ],
   profiles: ["Per-game overrides of every module in one list"],
   news: [
     "SteamOS releases for the installed channel",

@@ -4,6 +4,7 @@ import { FaBatteryHalf, FaCog, FaGamepad, FaInfoCircle, FaLightbulb, FaListUl, F
 import { ROUTE } from "../navigation";
 import { usePluginState } from "../store";
 import { t } from "../strings";
+import { Audio } from "./Audio";
 import { Controller } from "./Controller";
 import { Lighting } from "./Lighting";
 import { Overview } from "./Overview";
@@ -32,7 +33,7 @@ export function Fullscreen() {
   const pages: (SidebarNavigationPage | "separator")[] = [
     page("overview", t.overview, <FaInfoCircle />, <Overview state={state} />),
     "separator",
-    planned("audio", t.audio, <FaVolumeUp />),
+    page("audio", t.audio, <FaVolumeUp />, <Audio />),
     page("controller", t.controller, <FaGamepad />, <Controller />),
     page("lighting", t.lighting, <FaLightbulb />, <Lighting />),
     page("power", t.power, <FaBatteryHalf />, <Power />),

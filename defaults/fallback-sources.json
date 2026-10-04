@@ -1,0 +1,44 @@
+{
+  "_comment": "Package source per supported device, keyed by the lowercase codec subsystem id. Setup queries asus_api first and uses package as the pinned fallback (update url, sha256 and size together).",
+  "asus_cdn": "https://dlcdnets.asus.com",
+  "devices": {
+    "10431384": {
+      "name": "ROG Xbox Ally X (RC73XA)",
+      "asus_api": "https://www.asus.com/support/webapi/ProductV2/GetPDDrivers?website=us&model=rog+xbox+ally+x+%EF%BC%882025%EF%BC%89+rc73xa&pdhashedid=&osid=52",
+      "package": {
+        "title": "Dolby Atmos driver",
+        "version": "V11.130.1340.46",
+        "release_date": "2026/02/25",
+        "url": "https://dlcdnets.asus.com/pub/ASUS/IOTHMD/Image/Software/SoftwareandUtility/17507/DolbyAtmosdriverforConsumer_ASUS_Z_V11.130.1340.46_17507.exe",
+        "sha256": "f68bb32658ddbf6970a7ab338c22e94dcff46b69ef0709249748013326bb4778",
+        "size": 10827184
+      }
+    },
+    "10431394": {
+      "name": "ROG Xbox Ally (RC73YA)",
+      "_comment": "Same ASUS package as the RC73XA. It contains the 10431394 tuning.",
+      "asus_api": "https://www.asus.com/support/webapi/ProductV2/GetPDDrivers?website=us&model=rog+xbox+ally+x+%EF%BC%882025%EF%BC%89+rc73xa&pdhashedid=&osid=52",
+      "package": {
+        "title": "Dolby Atmos driver",
+        "version": "V11.130.1340.46",
+        "release_date": "2026/02/25",
+        "url": "https://dlcdnets.asus.com/pub/ASUS/IOTHMD/Image/Software/SoftwareandUtility/17507/DolbyAtmosdriverforConsumer_ASUS_Z_V11.130.1340.46_17507.exe",
+        "sha256": "f68bb32658ddbf6970a7ab338c22e94dcff46b69ef0709249748013326bb4778",
+        "size": 10827184
+      }
+    },
+    "10431eb3": {
+      "name": "ROG Ally X (RC72LA)",
+      "_comment": "The ASUS API answers for this model only when the query also has cpu=RC72LA.",
+      "asus_api": "https://www.asus.com/support/webapi/ProductV2/GetPDDrivers?website=us&model=rog+ally+x+%EF%BC%882024%EF%BC%89+rc72la&pdhashedid=&cpu=RC72LA&osid=52",
+      "package": {
+        "title": "Dolby Atmos driver",
+        "version": "V9.816.706.24",
+        "release_date": "2024/09/13",
+        "url": "https://dlcdnets.asus.com/pub/ASUS/IOTHMD/Image/Software/SoftwareandUtility/16152/DolbyAtmosdriverforConsumer_ASUS_Z_V9.816.706.24_16152_3.exe",
+        "sha256": "9b0481de5cc3a474fb941031948f26e44cb4efad80a3e040290748bd7f9e87c2",
+        "size": 8807856
+      }
+    }
+  }
+}
