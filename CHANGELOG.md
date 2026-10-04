@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2 (2026-10-04)
+
+- Fullscreen view: the D-pad moves one menu entry per press again; the separators in the side menu
+  made Steam's navigation skip every other entry and show the page behind the focus.
+
 ## 0.2.1 (2026-10-04)
 
 - Uninstall also reverts the gamepad layout and the speaker DSP unit: the cleanup no longer skips

@@ -30,16 +30,16 @@ export function Fullscreen() {
   const page = (identifier: string, title: string, icon: ReactNode, content: ReactNode): SidebarNavigationPage =>
     ({ identifier, title, icon, route: `${ROUTE}/${identifier}`, content });
 
-  const pages: (SidebarNavigationPage | "separator")[] = [
+  // No "separator" entries: with them Steam's SidebarNavigation moves the focus two items per D-pad
+  // press and shows the page one behind the focus.
+  const pages: SidebarNavigationPage[] = [
     page("overview", t.overview, <FaInfoCircle />, <Overview state={state} />),
-    "separator",
     page("audio", t.audio, <FaVolumeUp />, <Audio />),
     page("controller", t.controller, <FaGamepad />, <Controller />),
     page("lighting", t.lighting, <FaLightbulb />, <Lighting />),
     page("power", t.power, <FaBatteryHalf />, <Power />),
     page("profiles", t.profiles, <FaListUl />, <Profiles />),
     page("news", t.news, <FaNewspaper />, <News />),
-    "separator",
     page("system", t.system, <FaCog />, <System state={state} refresh={refresh} />),
   ];
 
