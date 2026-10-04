@@ -1,0 +1,76 @@
+export const t = {
+  title: "Ally Companion",
+  allSettings: "All settings",
+  unsupported: "Unsupported device",
+  backendError: "Backend not reachable",
+  retry: "Retry",
+  allGood: "Everything in order",
+  staleUi: "Updated: press B and reopen Ally Companion",
+  updateTo: (v: string) => `Install update v${v}`,
+  updateFailed: "Update failed",
+
+  overview: "Overview",
+  audio: "Audio",
+  controller: "Controller",
+  lighting: "Lighting",
+  power: "Power & battery",
+  profiles: "Game profiles",
+  news: "News",
+  system: "System",
+
+  device: "Device",
+  model: "Model",
+  bios: "BIOS",
+  mcu: "Controller firmware",
+  notReported: "not reported by the driver",
+  os: "Operating system",
+  kernel: "Kernel",
+  services: "System interfaces",
+  inputplumber: "InputPlumber",
+  steamosManager: "steamos-manager",
+  allyDriver: "Controller driver (hid_asus_ally)",
+  ledRing: "Joystick LED rings",
+  armoury: "ASUS firmware attributes (asus-armoury)",
+  available: "available",
+  missing: "missing",
+  notRunning: "not running",
+  modules: "Modules",
+  noModules: "No modules yet. They arrive one by one, starting with Audio and Controller.",
+  notSupported: "Not supported",
+
+  planned: "Planned",
+  version: "Version",
+  checkUpdate: "Check for updates",
+  upToDate: "Up to date",
+  diagnostics: "Diagnostics",
+  createReport: "Create report",
+  reportSaved: "Also saved to ~/homebrew/logs/Ally Companion/diagnostics.txt",
+  source: "Source code",
+};
+
+/** What each planned page will hold; shown until its module exists. */
+export const plannedPages: Record<string, string[]> = {
+  audio: [
+    "Dolby speaker tuning as a PipeWire filter chain (from Ally DSP)",
+    "Presets per game, headphone detection",
+  ],
+  controller: [
+    "Vibration intensity, Enhanced Vibration, rumble on the impulse triggers (from Ally Fix)",
+    "Gyro fix and gamepad layout fix for Steam Input (from Ally Fix)",
+    "Stick and trigger deadzones, response curves, button remapping (hid_asus_ally)",
+  ],
+  lighting: [
+    "Color, brightness and effects for the joystick rings",
+    "State lighting: battery level, charging, temperature",
+  ],
+  power: [
+    "CPU boost and fan fixes after charger events and resume (from Ally Fix)",
+    "Fan curves, charge limit, MCU power saving",
+  ],
+  profiles: ["Per-game overrides of every module in one list"],
+  news: [
+    "SteamOS releases for the installed channel",
+    "BIOS updates from ASUS for this board",
+    "Known issues between SteamOS versions and this plugin",
+  ],
+};

@@ -1,0 +1,19 @@
+# build output
+dist/
+out/
+node_modules/
+.pnpm-store/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+# local-only data: signing seed, test artefacts
+local/
+*.secret
+# editors / os
+.vscode/settings.json
+.idea/
+.DS_Store
+*.log
+.cache/
+src/version.ts

@@ -1,0 +1,11 @@
+{
+  "name": "Ally Companion",
+  "author": "bassobr",
+  "flags": ["root"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["hardware", "audio", "rgb", "rog-ally-x", "xbox-ally-x", "root"],
+    "description": "Speaker DSP, hardware fixes, lighting and update news for the ROG Xbox Ally X and ROG Ally X on SteamOS.",
+    "image": ""
+  }
+}
