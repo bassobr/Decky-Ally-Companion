@@ -19,6 +19,12 @@ stack since Bazzite 44) comes along where it costs nothing.
 Takeover from the predecessors is tested: Ally Fix and Ally DSP were uninstalled on the test device,
 their settings and data imported, their overrides and drop-ins taken over.
 
+Lifecycle tested on the RC73XA with the signed releases: uninstall in Decky reverts every module a
+minute later (0.2.1; 0.2.0 skipped the layout and the DSP unit), `install.sh` installs and
+verifies the latest release, Decky's installer installs 0.2.0, the in-app update moves it to 0.2.1
+without reverting anything (the old version's cleanup timer is cancelled by the new backend), and
+audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 seconds.
+
 ## Open
 
 - **ROG Ally X (RC72LA)**: run the interface survey (docs/architecture.md), then enable the modules
@@ -27,9 +33,6 @@ their settings and data imported, their overrides and drop-ins taken over.
   `50-rog_ally_x.yaml`.
 - **Lighting effects**: breathing, colour cycle and rainbow send the MCU commands without errors,
   but nobody has looked at the rings yet. Static colours and brightness are verified through sysfs.
-- **Uninstall cleanup**: the deferred cleanup (cleanup.py) is unit-tested but has not run on the
-  device; test it with a real uninstall once a release exists.
-- **In-app update**: needs two releases to test.
 
 ## Decided against
 
