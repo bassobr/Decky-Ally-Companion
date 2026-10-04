@@ -1,4 +1,5 @@
 import { addEventListener, removeEventListener, toaster } from "@decky/api";
+import { openPage } from "./navigation";
 import { useEffect, useState } from "react";
 import { getState, moduleAction, setModuleEnabled, setModuleOptions } from "./backend";
 import type { ModuleResult, ModuleStatus, PluginState, UpdateInfo } from "./types";
@@ -57,6 +58,15 @@ const onAudioProgress = (ev: { kind: "setup" | "convert"; status?: string; [k: s
   if (finished) void store.refresh();
 };
 
+/** New SteamOS releases, BIOS versions and known issues arrive once each as a toast. */
+const NEWS_KIND: Record<string, string> = { steamos: "SteamOS", bios: "BIOS", firmware: "Firmware", issue: "Known issue" };
+const onNews = (items: { id: string; kind: string; title: string; version?: string }[]) => {
+  for (const it of items.slice(0, 3)) {
+    toaster.toast({ title: `Ally Companion: ${NEWS_KIND[it.kind] ?? "News"}`, body: it.title, onClick: () => openPage("news") });
+  }
+  void store.refresh();
+};
+
 const onUpdate = (u: UpdateInfo) => {
   if (!cache) return;
   cache = { ...cache, update: u };
@@ -68,6 +78,7 @@ export function connectEvents(): void {
   addEventListener<[Record<string, ModuleStatus>]>("modules", onModules);
   addEventListener<[UpdateInfo]>("update_state", onUpdate);
   addEventListener<[any]>("audio_progress", onAudioProgress);
+  addEventListener<[any]>("news_new", onNews);
   void store.refresh();
 }
 
@@ -76,6 +87,7 @@ export function disconnectEvents(): void {
   removeEventListener("modules", onModules);
   removeEventListener("update_state", onUpdate);
   removeEventListener("audio_progress", onAudioProgress);
+  removeEventListener("news_new", onNews);
 }
 
 export function usePluginState() {

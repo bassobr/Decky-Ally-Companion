@@ -5,6 +5,7 @@ import { startAppWatcher, stopAppWatcher } from "./appWatcher";
 import { QuickAccess } from "./components/QuickAccess";
 import { stopLayoutPatch, syncLayoutPatch } from "./layoutPatch";
 import { ROUTE } from "./navigation";
+import { addSettingsEntry, removeSettingsEntry } from "./settingsEntry";
 import { Fullscreen } from "./pages/Fullscreen";
 import { connectEvents, disconnectEvents, store } from "./store";
 import { t } from "./strings";
@@ -16,6 +17,7 @@ export default definePlugin(() => {
   const unsubscribe = store.subscribe(() => void syncLayoutPatch());
   connectEvents();
   startAppWatcher();
+  addSettingsEntry();
   return {
     name: t.title,
     titleView: <div className={staticClasses.Title}>{t.title}</div>,
@@ -23,6 +25,7 @@ export default definePlugin(() => {
     icon: <FaGamepad />,
     onDismount() {
       unsubscribe();
+      removeSettingsEntry();
       stopAppWatcher();
       stopLayoutPatch();
       disconnectEvents();

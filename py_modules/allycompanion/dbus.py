@@ -16,7 +16,8 @@ class DBusError(RuntimeError):
 
 
 def _busctl(args: List[str], user_bus: bool, timeout: float) -> Any:
-    cmd = ["busctl", "--user" if user_bus else "--system", "--json=short", *args]
+    # "--": values such as -1 must not be read as options
+    cmd = ["busctl", "--user" if user_bus else "--system", "--json=short", "--", *args]
     r = run(cmd, timeout=timeout, as_user=user_bus)
     if not r.ok:
         raise DBusError((r.err or r.out).strip()[:300] or f"busctl rc={r.rc}")

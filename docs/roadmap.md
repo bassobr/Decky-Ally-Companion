@@ -25,6 +25,14 @@ verifies the latest release, Decky's installer installs 0.2.0, the in-app update
 without reverting anything (the old version's cleanup timer is cancelled by the new backend), and
 audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 seconds.
 
+## Done (0.3.0, verified on the RC73XA)
+
+8. Entry in Steam's settings menu, live values with CPU boost details, settings backup and
+   restore, controller reconnect, charge to 100 % once, daily battery health history, news toasts.
+9. Game profiles with performance profile, CPU boost and fan curve.
+10. Microphone noise suppression and headphone EQ (AutoEQ). The EQ chain was checked on a test
+    target; with real headphones it is still untested.
+
 ## Open
 
 - **ROG Ally X (RC72LA)**: run the interface survey (docs/architecture.md), then enable the modules

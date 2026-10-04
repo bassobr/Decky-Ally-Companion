@@ -10,7 +10,8 @@ import decky  # type: ignore
 
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), "py_modules"))
 
-from allycompanion import cleanup, conflicts, deckyfix, device, diagnostics, migrate, paths, settings, steam, updater  # noqa: E402
+from allycompanion import backup, cleanup, conflicts, deckyfix, device, diagnostics, live, migrate, paths, settings, steam, updater  # noqa: E402
+from allycompanion.util import run  # noqa: E402
 from allycompanion.module import Context  # noqa: E402
 from allycompanion.modules import MODULES  # noqa: E402
 from allycompanion.registry import Registry  # noqa: E402
@@ -133,10 +134,48 @@ class Plugin:
     async def on_running_app_changed(self, app_id: Optional[str]) -> Dict[str, Any]:
         app = str(app_id) if app_id else None
         await self.registry.on_app_changed(app)
+        await self._emit_state()  # pages show the running game's settings
         return {"appId": app}
 
     async def restart_steam(self) -> Dict[str, Any]:
         return await steam.restart()
+
+    # ---------------------------------------------------------------- live values, backups, repair
+    async def get_live(self) -> Dict[str, Any]:
+        return await asyncio.to_thread(live.snapshot)
+
+    async def backup_settings(self) -> Dict[str, Any]:
+        audio = self.registry.modules.get("audio")
+        data = backup.build(self.settings["modules"], audio.export() if audio else {}, decky.DECKY_PLUGIN_VERSION)
+        name = await asyncio.to_thread(backup.write, data)
+        decky.logger.info("settings backed up to %s", name)
+        return {"name": name, "dir": backup.backup_dir()}
+
+    async def list_backups(self) -> Dict[str, Any]:
+        return {"dir": backup.backup_dir(), "backups": await asyncio.to_thread(backup.listing)}
+
+    async def restore_backup(self, name: str) -> Dict[str, Any]:
+        data = await asyncio.to_thread(backup.read, name)
+        restored = await self.registry.restore(data["modules"])
+        audio = self.registry.modules.get("audio")
+        if audio and data.get("audio") and "audio" not in self.registry.blocked:
+            await audio.restore(data["audio"])  # type: ignore[attr-defined]
+        decky.logger.info("settings restored from %s", name)
+        await self._emit_state()
+        return {"restored": restored}
+
+    async def repair_controller(self) -> Dict[str, Any]:
+        """Restart InputPlumber, then send everything the controller MCU keeps again."""
+        r = await asyncio.to_thread(run, ["systemctl", "restart", "inputplumber"], 30)
+        if not r.ok:
+            return {"ok": False, "error": (r.err or r.out).strip()[:200]}
+        await asyncio.sleep(3)
+        for mid in ("vibration", "lighting"):
+            m = self.registry.modules.get(mid)
+            if m and m.supported()[0] and mid not in self.registry.blocked:
+                await m.on_resume(0.0)
+        decky.logger.info("controller repaired: inputplumber restarted, settings re-sent")
+        return {"ok": True, "error": ""}
 
     # ---------------------------------------------------------------- updates
     async def check_for_update(self, force: bool = False) -> Dict[str, Any]:

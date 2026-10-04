@@ -1,4 +1,5 @@
 import { DialogBody, DialogControlsSection, DialogControlsSectionHeader, Field } from "@decky/ui";
+import { LiveValues } from "../components/LiveValues";
 import { stateLine } from "../components/ModuleRow";
 import { warnings } from "../status";
 import { t } from "../strings";
@@ -17,6 +18,7 @@ export function Overview({ state }: { state: PluginState }) {
           {w.map((text) => <Field key={text} label={text} focusable />)}
         </DialogControlsSection>
       )}
+      <LiveValues />
       <DialogControlsSection>
         <DialogControlsSectionHeader>{t.device}</DialogControlsSectionHeader>
         <Field label={t.model} focusable>{d.model ? `${d.model} (${d.board})` : `${t.unsupported} (${d.board || "?"})`}</Field>

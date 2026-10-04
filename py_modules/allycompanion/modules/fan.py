@@ -67,6 +67,34 @@ class Fan(Module):
         super().__init__()
         self._task: Optional[asyncio.Task] = None
         self._last_event = ""
+        self._override: Optional[Curve] = None  # game profile curve, pinned while the game runs
+
+    @property
+    def active(self) -> bool:
+        return self.enabled or self._override is not None
+
+    async def reapply_if_enabled(self, force: bool = False) -> None:
+        if not self.active or not self.supported()[0]:
+            return
+        try:
+            await self.apply()
+            self.last_error = ""
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[fan] apply failed")
+            self.last_error = str(e)
+
+    async def set_override(self, values: Optional[Dict[str, Any]]) -> None:
+        """Game profile {"curve": {...}}; None goes back to the pinned or firmware curve."""
+        new = sanitize(values["curve"]) if values and values.get("curve") else None
+        if new == self._override:
+            return
+        self._override = new
+        if self.active:
+            self._start_watchdog()
+            async with self._lock:
+                self._last_event = self._pin("game profile" if new else "game ended", force_write=True)
+        else:
+            await self.revert()
 
     def actions(self):
         return {"restore_factory": self.restore_factory, "set_curve": self.set_curve}
@@ -140,6 +168,12 @@ class Fan(Module):
         profile = self.profile()
         en1, en2 = self.enable_state()
         curve = self.read_curve()
+        if self._override is not None:
+            if force_write or en1 != 1 or en2 != 1 or curve != self._override:
+                self._write_curve(self._override)
+                self._write_enable(1)
+                return f"pinned the game's curve ({reason})"
+            return ""
         snap = self.snapshots().get(profile)
         if en1 == 1 and en2 == 1 and not force_write:
             if not valid(curve):
@@ -202,7 +236,8 @@ class Fan(Module):
         except OSError:
             pass
         return {"profile": profile, "pwmEnable": list(self.enable_state()), "rpm": list(self.rpm()), "temp": self.temp(),
-                "curve": cur, "snapshotProfiles": sorted(self.snapshots()), "lastEvent": self._last_event}
+                "curve": cur, "snapshotProfiles": sorted(self.snapshots()), "lastEvent": self._last_event,
+                "override": self._override is not None}
 
     async def start(self) -> None:
         await self.reapply_if_enabled()
@@ -212,13 +247,13 @@ class Fan(Module):
         self._task = None
 
     async def on_resume(self, slept_s: float) -> None:
-        if not self.enabled:
+        if not self.active:
             return
         await asyncio.sleep(RESUME_SETTLE_S)
         async with self._lock:
             done = self._pin("resume", force_write=True)
         await asyncio.sleep(RESUME_SETTLE_S)
-        if self.enabled and self._failsafe_tripped():
+        if self.active and self._failsafe_tripped():
             async with self._lock:
                 done = self._pin("resume-failsafe", force_write=True)
             logger.warning("[fan] fans still in failsafe after resume, re-pinned")
@@ -257,7 +292,7 @@ class Fan(Module):
     async def _watchdog(self) -> None:
         while True:
             await asyncio.sleep(WATCHDOG_PERIOD_S)
-            if not self.enabled:
+            if not self.active:
                 return
             try:
                 async with self._lock:

@@ -10,17 +10,19 @@ Verified on the ROG Xbox Ally X (SteamOS 3.8.28). The ROG Ally X is not tested y
 
 | Page | What it does |
 |---|---|
-| Audio | Dolby speaker tuning from ASUS' own driver package as a PipeWire filter chain: profiles and voicings, per-game presets, leveler, dialog enhancer, pre-gain, pause on headphones |
-| Controller | Grip vibration strength, Enhanced Vibration, rumble on the impulse triggers, gyro axis fix for Steam Input, Steam Input layout without trackpads and phantom rear buttons |
+| Overview | Device, system interfaces, live sensor values, CPU boost state |
+| Audio | Dolby speaker tuning from ASUS' own driver package as a PipeWire filter chain (profiles, voicings, per-game presets, leveler, dialog enhancer, pre-gain, pause on headphones); microphone noise suppression (RNNoise); headphone EQ with AutoEQ profiles |
+| Controller | Grip vibration strength, Enhanced Vibration, rumble on the impulse triggers, gyro axis fix for Steam Input, Steam Input layout without trackpads and phantom rear buttons, reconnect after a hang |
 | Lighting | Joystick rings: static colour, breathing, colour cycle, rainbow, battery level display |
-| Power & battery | CPU boost off with the frequency cap kept after charger events, fan curve pinning and custom curves per profile, charge limit, battery health, controller power saving in sleep, boot sound |
-| Game profiles | Per-game lighting and vibration strength (per-game sound lives on the Audio page) |
-| News | SteamOS releases of the installed channel with the Ally-related changes, BIOS for the board (EZ Flash download), known issues |
-| System | Plugin updates, diagnostics |
+| Power & battery | CPU boost off with the frequency cap kept after charger events, fan curve pinning and custom curves per profile, charge limit and "charge to 100 % once", battery health with daily history, controller power saving in sleep, boot sound |
+| Game profiles | Per-game lighting, vibration strength, performance profile, CPU boost and fan curve (per-game sound lives on the Audio page) |
+| News | SteamOS releases of the installed channel with the Ally-related changes, BIOS for the board (EZ Flash download), known issues; new items as a toast |
+| System | Plugin updates, settings backup and restore, diagnostics |
 
 The Quick Access panel only holds what changes during a game: a status line, the sound preset for
 the running game, the light brightness and a Steam restart button when a change needs one.
-Everything else is in the fullscreen view (Quick Access → Ally Companion → All settings).
+Everything else is in the fullscreen view (Quick Access → Ally Companion → All settings, or
+Steam's Settings → Ally Companion).
 
 Coming from Ally Fix or Ally DSP: install Ally Companion, then uninstall the old plugin in Decky.
 Until then the matching pages stay passive. Settings, the Dolby tuning and the converter

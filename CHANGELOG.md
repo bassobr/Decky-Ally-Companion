@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0 (2026-10-04)
+
+- Steam's settings menu has an "Ally Companion" entry that opens the fullscreen view.
+- Overview: live values (CPU and GPU temperature and clocks, APU power, battery, fans, power
+  profile, PPT) and a CPU boost block (state, frequency cap, cores above the cap, last re-send);
+  polled only while the page is open.
+- Audio: microphone noise suppression (RNNoise, the cleaned microphone becomes the default source)
+  and a headphone EQ with AutoEQ profiles for wired, Bluetooth or USB headphones.
+- Game profiles: performance profile, CPU boost and fan curve per game, besides lighting and
+  vibration.
+- Battery: charge to 100 % once (the limit comes back when full) and a daily health history.
+- News: new SteamOS releases, BIOS versions and known issues show up as a toast once.
+- System: back up all settings to ~/Documents/Ally Companion and restore them.
+- Controller: "Reconnect the controller" restarts InputPlumber and re-sends vibration and lighting.
+- Fix: values like -1 (no charge limit) reach steamos-manager; busctl took them for options.
+
 ## 0.2.2 (2026-10-04)
 
 - Fullscreen view: the D-pad moves one menu entry per press again; the separators in the side menu

@@ -79,7 +79,7 @@ def test_property_reads_use_the_right_bus(monkeypatch):
 
     monkeypatch.setattr(dbus, "run", fake_run)
     assert dbus.get_property("a.b", "/a/b", "a.b.I", "P", user_bus=True) == "balanced"
-    assert calls[-1][0][:3] == ["busctl", "--user", "--json=short"] and calls[-1][1] is True
+    assert calls[-1][0][:4] == ["busctl", "--user", "--json=short", "--"] and calls[-1][1] is True
     dbus.get_property("a.b", "/a/b", "a.b.I", "P")
     assert calls[-1][0][1] == "--system" and calls[-1][1] is False
 
@@ -295,3 +295,10 @@ def test_uninstall_reverts_modules_whose_plugin_files_are_gone(monkeypatch):
     s["modules"]["gone"]["enabled"] = True
     asyncio.run(reg.uninstall())
     assert reg.get("gone").events == ["revert"]
+
+
+def test_negative_values_reach_busctl_after_the_option_end(monkeypatch):
+    calls = []
+    monkeypatch.setattr(dbus, "run", lambda cmd, **kw: calls.append(cmd) or util.Result(0, "", ""))
+    dbus.set_property("a.b", "/a", "a.b.I", "MaxChargeLevel", "i", -1, user_bus=True)
+    assert calls[0][3] == "--" and calls[0][-2:] == ["i", "-1"]

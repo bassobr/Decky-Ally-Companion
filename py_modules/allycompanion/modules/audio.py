@@ -267,6 +267,27 @@ class Audio(Module):
             logger.exception("[audio] switching %s failed", "on" if on else "off")
             self.last_error = str(e)
 
+    def export(self) -> Dict[str, Any]:
+        s = self.dsp()
+        return {k: s[k] for k in IMPORTED_KEYS if k in s}
+
+    async def restore(self, data: Dict[str, Any]) -> None:
+        """Settings from a backup; reconverts when the extras differ from the presets."""
+        s = self.dsp()
+        for k in IMPORTED_KEYS:
+            if k in data:
+                s[k] = data[k]
+        self.save_dsp(s)
+        if not self.setup_done():
+            return
+        if dsp_settings.extras_signature(s["extras"]) != s["setup"].get("extrasSignature"):
+            self._start_reconvert()
+        elif s.get("enabled"):
+            await asyncio.to_thread(self.worker.run, ["enable"])
+            await self._apply_current(force_restart=True)
+        else:
+            await asyncio.to_thread(self.worker.run, ["disable"])
+
     def actions(self):
         return {"run_setup": self.run_setup, "cancel_setup": self.cancel_setup, "set_global": self.set_global,
                 "set_per_app": self.set_per_app, "set_extras": self.set_extras}

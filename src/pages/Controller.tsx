@@ -1,5 +1,7 @@
 import { ButtonItem, DialogBody, DialogControlsSection, DialogControlsSectionHeader, DropdownItem, Field, SliderField, ToggleField } from "@decky/ui";
+import { toaster } from "@decky/api";
 import { useEffect, useState } from "react";
+import { repairController } from "../backend";
 import { InfoField, isActive, ModuleToggle } from "../components/ModuleRow";
 import { useDebounced } from "../hooks/useDebounced";
 import { restartSteam, withSteamRestart } from "../steamRestart";
@@ -112,6 +114,11 @@ function Layout({ m }: { m: ModuleStatus }) {
   );
 }
 
+async function repair() {
+  const r = await repairController();
+  toaster.toast({ title: "Ally Companion", body: r.ok ? "Controller reconnected" : `Repair failed: ${r.error}` });
+}
+
 export function Controller() {
   const vib = useModule("vibration");
   const gyro = useModule("gyro");
@@ -129,6 +136,13 @@ export function Controller() {
       {vib && <Vibration m={vib} />}
       {gyro && <Gyro m={gyro} />}
       {layout && <Layout m={layout} />}
+      <DialogControlsSection>
+        <DialogControlsSectionHeader>Repair</DialogControlsSectionHeader>
+        <ButtonItem layout="below" description="Restarts InputPlumber and sends vibration and lighting to the controller again. Use it when the controller hangs after sleep."
+          onClick={() => void repair()}>
+          Reconnect the controller
+        </ButtonItem>
+      </DialogControlsSection>
       <DialogControlsSection>
         <DialogControlsSectionHeader>Sticks and buttons</DialogControlsSectionHeader>
         <InfoField label="Deadzones, response curves, remapping" value="Steam Input, per game" />

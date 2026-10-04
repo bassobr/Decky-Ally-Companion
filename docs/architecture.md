@@ -27,6 +27,7 @@ Frontend ── Quick Access panel: status, sound preset for the running game, l
             Power & battery, Game profiles, News, System)
          ── layoutPatch.ts / controllerArt.ts: the Steam-side half of the gamepad layout module
          ── appWatcher.ts: reports the running game (per-game presets and profiles)
+         ── settingsEntry.tsx: an entry in Steam's own settings menu (route patch on /settings)
 ```
 
 ## UI rule
@@ -48,6 +49,8 @@ modules through four calls: `get_state`, `set_module_enabled`, `set_module_optio
 | Module | Source | Touches |
 |---|---|---|
 | audio | Ally DSP | `~/homebrew/data/Ally Companion/audio`, `~/.config/systemd/user/ally-companion-dsp.service` |
+| mic | new | `audio/mic.conf`, `ally-companion-mic.service`: RNNoise (NoiseTorch's `nt-filter` LADSPA build that SteamOS ships) in its own PipeWire process; the cleaned source has session priority 2500, above Valve's loopback source (2010), so it becomes the default |
+| headphones | new | `audio/hp.conf`, `ally-companion-hp.service`: AutoEQ ParametricEQ as built-in biquads, smart filter on the headphone sink; runs only while the headphone route (wired) or the chosen sink (Bluetooth, USB) is in use |
 | vibration | Ally Fix | MCU `5A D1 06` / `5A D1 1F`, `vibration_intensity`, HID-BPF on the gamepad interface |
 | gyro | Ally Fix | `/etc/inputplumber/devices.d/50-rog_xbox_ally.yaml`, Steam's `steam_dev.cfg` (complex mode) |
 | gamepad_layout | Ally Fix | `~/.local/lib/ally-companion/`, drop-in `zz-ally-companion-gamepad-layout.conf` of steam-launcher.service |
@@ -55,8 +58,16 @@ modules through four calls: `get_state`, `set_module_enabled`, `set_module_optio
 | fan | Ally Fix + new | `asus_custom_fan_curve` hwmon (`pwm*_enable`, auto points) |
 | battery | new | steamos-manager `BatteryChargeLimit1`, asus-armoury `mcu_powersave`, `boot_sound` |
 | lighting | new | `ally:rgb:joystick_rings` LED class, MCU `5A B3/B4/B5/BA` effects |
-| profiles | new | overrides of lighting and vibration while a game runs |
+| profiles | new | overrides of lighting, vibration, CPU boost and fan while a game runs; the performance profile through steamos-manager (Steam keeps one global platform profile; the one at game start is restored) |
 | news | new | Steam news API, ASUS support API, `news/known-issues.json` of this repository |
+
+## Smart filters and Valve's loopback source
+
+WirePlumber smart filters work for the speaker DSP and the headphone EQ (sinks), but not in front
+of the internal microphone: Valve's WirePlumber puts a loopback source (`alsa_loopback_device.*`,
+itself a filter with its own link group) in front of it, and for a target that is a filter
+WirePlumber only looks for smart filters of that link group. The microphone module therefore
+publishes its output as a higher-priority source instead.
 
 ## Predecessors
 

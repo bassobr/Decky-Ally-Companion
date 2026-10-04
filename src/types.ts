@@ -84,3 +84,13 @@ export interface UiPatchResult {
   caps?: string[];
   art?: string;
 }
+
+export interface LiveValues {
+  cpu: { boost: boolean; avgMHz: number | null; maxMHz: number | null; capMHz: number | null; hwMaxMHz: number | null;
+    cores: number; overCap: number; tempC: number | null };
+  gpu: { tempC: number | null; clockMHz: number | null; busyPct: number | null; apuW: number | null };
+  fansRpm: (number | null)[];
+  battery: { capacity: number | null; status: string | null; powerW: number | null };
+  platformProfile: string | null;
+  pptW: (number | null)[];
+}

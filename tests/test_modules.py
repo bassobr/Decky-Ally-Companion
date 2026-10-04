@@ -5,7 +5,8 @@ import pytest
 
 from allycompanion import conflicts, migrate, paths, util
 from allycompanion.module import Context
-from allycompanion.modules import MODULES, battery, cpu_boost, fan, gamepad_layout, gyro, lighting, news, profiles, vibration
+from allycompanion.modules import (MODULES, battery, cpu_boost, fan, gamepad_layout, gyro, headphones, lighting, mic, news,
+                                   profiles, vibration)
 from allycompanion.registry import Registry
 
 STOCK = """name: ASUS ROG Xbox Ally
@@ -44,7 +45,7 @@ def _module(cls, cfg=None):
 
 def test_all_modules_have_unique_ids_and_json_defaults():
     reg = Registry(MODULES)
-    assert list(reg.modules) == ["audio", "vibration", "gyro", "gamepad_layout", "cpu_boost", "fan", "battery", "lighting",
+    assert list(reg.modules) == ["audio", "mic", "headphones", "vibration", "gyro", "gamepad_layout", "cpu_boost", "fan", "battery", "lighting",
                                  "profiles", "news"]
     util.write_json  # defaults must be JSON-serialisable
     import json
@@ -261,6 +262,10 @@ def test_profiles_push_overrides_on_app_change():
     m = _module(profiles.Profiles)
     light, vib = _Target(), _Target()
     m.ctx.modules = {"lighting": light, "vibration": vib}
+    perf = []
+    import allycompanion.modules.profiles as prof_mod
+    prof_mod.get_perf_profile = lambda: "balanced" if not perf else perf[-1]
+    prof_mod.set_perf_profile = lambda p: perf.append(p)
     asyncio.run(m.set_app(appId="42", part="lighting", values={"color": "#00ff00"}, name="Game"))
     assert light.values == "unset"  # not running yet
     asyncio.run(m.on_app_changed("42"))
@@ -272,3 +277,88 @@ def test_profiles_push_overrides_on_app_change():
     asyncio.run(m.set_app(appId="42", part="lighting", values=None))
     asyncio.run(m.set_app(appId="42", part="vibration", values=None))
     assert m.apps() == {}
+
+    asyncio.run(m.set_app(appId="42", part="performance", values={"profile": "performance"}))
+    asyncio.run(m.on_app_changed("42"))
+    assert perf == ["performance"] and m.cfg["perfBaseline"] == "balanced"
+    asyncio.run(m.on_app_changed(None))
+    assert perf == ["performance", "balanced"] and m.cfg["perfBaseline"] is None
+
+
+def test_cpu_boost_and_fan_overrides(sysroot, monkeypatch):
+    _write(sysroot, "sys/devices/system/cpu/cpufreq/boost", "1")
+    _write(sysroot, "sys/class/dmi/id/sys_vendor", "ASUSTeK COMPUTER INC.")
+    m = _module(cpu_boost.CpuBoost, {"enabled": False})
+    calls = []
+
+    async def apply():
+        calls.append("apply")
+
+    async def revert():
+        calls.append("revert")
+
+    m.apply, m.revert = apply, revert
+    asyncio.run(m.set_override({"boost": False}))  # keep boost off in this game
+    assert m.active and calls == ["apply"]
+    asyncio.run(m.set_override(None))
+    assert not m.active and calls == ["apply", "revert"]
+    m.cfg["enabled"] = True
+    asyncio.run(m.set_override({"boost": True}))  # boost allowed in this game
+    assert not m.active and calls[-1] == "revert"
+
+    f = _module(fan.Fan, {"enabled": False})
+    pinned = []
+    monkeypatch.setattr(f, "_pin", lambda reason, force_write=False: pinned.append(reason) or reason)
+    monkeypatch.setattr(f, "_start_watchdog", lambda: None)
+
+    async def frevert():
+        pinned.append("revert")
+
+    f.revert = frevert
+    curve = {"temps": [40, 50, 60, 65, 70, 75, 80, 90], "pwm1": [0, 20, 40, 60, 80, 100, 120, 140],
+             "pwm2": [0, 20, 40, 60, 80, 100, 120, 140]}
+    asyncio.run(f.set_override({"curve": curve}))
+    assert f.active and pinned == ["game profile"]
+    asyncio.run(f.set_override(None))
+    assert not f.active and pinned[-1] == "revert"
+
+
+# ------------------------------------------------------------------ microphone and headphones
+
+def test_internal_mic_prefers_valves_loopback_source():
+    srcs = [{"name": "alsa_input.pci-0000_64_00.6.analog-stereo"},
+            {"name": "alsa_loopback_device.alsa_input.pci-0000_64_00.6.analog-stereo"}, {"name": "bluez_input.x"}]
+    assert mic.internal_mic(srcs) == "alsa_loopback_device.alsa_input.pci-0000_64_00.6.analog-stereo"
+    assert mic.internal_mic(srcs[:1]) == "alsa_input.pci-0000_64_00.6.analog-stereo"
+    assert mic.internal_mic([{"name": "bluez_input.x"}]) is None
+    conf = mic.config("alsa_input.x", 60)
+    assert 'target.object = "alsa_input.x"' in conf and "priority.session = 2500" in conf and '"VAD %%" = 60.0' in conf and 'label = "nt-filter"' in conf
+
+
+INDEX = """# Index
+- [Sennheiser HD 650](./oratory1990/over-ear/Sennheiser%20HD%20650) by oratory1990
+- [Sennheiser HD 600](./oratory1990/over-ear/Sennheiser%20HD%20600) by oratory1990
+- [1MORE Aero (ANC On)](./HypetheSonics/GRAS%20RA0045%20in-ear/1MORE%20Aero%20(ANC%20On)) by HypetheSonics on GRAS RA0045
+"""
+
+PEQ = """Preamp: -6.1 dB
+Filter 1: ON LSC Fc 105 Hz Gain 6.4 dB Q 0.70
+Filter 2: ON PK Fc 8800 Hz Gain 5.1 dB Q 1.42
+Filter 3: ON HSC Fc 10000 Hz Gain -2.1 dB Q 0.70
+Filter 4: OFF PK Fc 100 Hz Gain 1 dB Q 1
+"""
+
+
+def test_autoeq_index_search_and_profile():
+    idx = headphones.parse_index(INDEX)
+    assert idx[0] == {"name": "Sennheiser HD 650", "path": "oratory1990/over-ear/Sennheiser HD 650", "source": "oratory1990"}
+    assert idx[2]["path"] == "HypetheSonics/GRAS RA0045 in-ear/1MORE Aero (ANC On)"
+    assert [e["name"] for e in headphones.search(idx, "hd 6")] == ["Sennheiser HD 600", "Sennheiser HD 650"]
+    assert headphones.search(idx, "  ") == []
+    eq = headphones.parse_parametric(PEQ)
+    assert eq["preamp"] == -6.1 and [f["type"] for f in eq["filters"]] == ["bq_lowshelf", "bq_peaking", "bq_highshelf"]
+    conf = headphones.config({**eq, "name": "HD 650", "source": "oratory1990"}, "alsa_output.x")
+    assert '"Gain" = -6.10' in conf and 'output = "f2:Out" input = "f3:In"' in conf
+    assert 'filter.smart.target = { node.name = "alsa_output.x" }' in conf
+    with pytest.raises(ValueError):
+        headphones.parse_parametric("Preamp: 0 dB")

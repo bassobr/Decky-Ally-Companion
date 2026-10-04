@@ -14,6 +14,8 @@ module may change, each reverted when the plugin is removed:
 | gyro | `/etc/inputplumber/devices.d/50-rog_xbox_ally.yaml`, one line in `~/.local/share/Steam/steam_dev.cfg` |
 | gamepad layout | `~/.local/lib/ally-companion/`, `~/.config/systemd/user/steam-launcher.service.d/zz-ally-companion-gamepad-layout.conf` (the shim log `~/.local/state/ally-companion-allycaps.log` stays) |
 | audio | `~/.config/systemd/user/ally-companion-dsp.service` |
+| microphone, headphone EQ | `~/.config/systemd/user/ally-companion-mic.service`, `~/.config/systemd/user/ally-companion-hp.service` |
+| backups | `~/Documents/Ally Companion/` (only when a backup is made; not removed) |
 | news | `~/Downloads/BIOS-<board>-<version>/` (only when the BIOS download is used; not removed) |
 
 On removal, CPU boost, fan control, vibration strength and Enhanced Vibration go back to the
@@ -53,6 +55,8 @@ versions can be reinstalled with `install.sh`.
   the SHA-256 from the ASUS support API (or the pinned fallback hash) before extracting anything.
   The converter's numpy/scipy come from PyPI into a private venv.
 - The BIOS download checks the file against the SHA-256 the ASUS support API publishes.
+- Headphone EQ profiles are text files from the AutoEQ repository on GitHub, parsed into filter
+  parameters; nothing from them is executed.
 - The prebuilt binaries in `bin/` (Steam client shim, BPF object) come from Ally Fix and are built
   from the sources in `shim/` and `bpf/`; the LSP LV2 bundle is fetched from the SteamOS package
   mirror and checked against a pinned SHA-256 at build time.

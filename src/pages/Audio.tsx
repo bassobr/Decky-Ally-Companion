@@ -1,4 +1,4 @@
-import { ButtonItem, DialogBody, DialogControlsSection, DialogControlsSectionHeader, DropdownItem, Field, ProgressBarWithInfo, SliderField, ToggleField } from "@decky/ui";
+import { ButtonItem, DialogBody, DialogControlsSection, DialogControlsSectionHeader, DropdownItem, Field, ProgressBarWithInfo, SliderField, TextField, ToggleField } from "@decky/ui";
 import { useEffect, useState } from "react";
 import { appName } from "../appWatcher";
 import { InfoField, isActive, ModuleToggle } from "../components/ModuleRow";
@@ -126,6 +126,86 @@ function Extras({ m }: { m: ModuleStatus }) {
   );
 }
 
+function Microphone() {
+  const m = useModule("mic");
+  const [vad, setVad] = useState<number>(m?.details.vad ?? 50);
+  useEffect(() => setVad(m?.details.vad ?? 50), [m?.details.vad]);
+  const send = useDebounced((v: number) => void mod.options("mic", { vad: v }), 600);
+  if (!m || !m.supported) return null;
+  return (
+    <DialogControlsSection>
+      <DialogControlsSectionHeader>Microphone</DialogControlsSectionHeader>
+      <ModuleToggle m={m} label="Noise suppression"
+        description="RNNoise cleans the internal microphone; the cleaned one becomes the default microphone while this is on."
+        onChange={(on) => void mod.enable("mic", on)} />
+      {m.enabled && isActive(m) && (
+        <SliderField label="Voice threshold" value={vad} min={0} max={95} step={5} showValue valueSuffix=" %"
+          description="Higher: more silence between words, but quiet speech can be cut."
+          onChange={(v) => { setVad(v); send(v); }} />
+      )}
+    </DialogControlsSection>
+  );
+}
+
+function Headphones() {
+  const m = useModule("headphones");
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<{ name: string; path: string; source: string }[] | null>(null);
+  const [outputs, setOutputs] = useState<{ name: string; description: string }[]>([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (m?.enabled) void mod.action("headphones", "outputs").then((r) => setOutputs((r.result as any[]) ?? []));
+  }, [m?.enabled]);
+  if (!m || !m.supported) return null;
+  const d = m.details;
+  const search = async () => {
+    setBusy(true);
+    try {
+      const r = await mod.action("headphones", "search", { query });
+      setResults((r.result as any[]) ?? []);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const select = async (e: { name: string; path: string; source: string }) => {
+    setBusy(true);
+    try {
+      await mod.action("headphones", "select", { path: e.path, name: e.name, source: e.source });
+      setResults(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const outputOptions = [{ data: "wired", label: "Wired (3.5 mm jack)" }, ...outputs.map((o) => ({ data: o.name, label: o.description }))];
+  if (d.output && d.output !== "wired" && !outputs.some((o) => o.name === d.output)) outputOptions.push({ data: d.output, label: `${d.output} (not connected)` });
+  return (
+    <DialogControlsSection>
+      <DialogControlsSectionHeader>Headphones</DialogControlsSectionHeader>
+      <ModuleToggle m={m} label="Headphone EQ"
+        description="Correction profiles from AutoEQ for your headphone model. Runs only while the headphones are in use."
+        onChange={(on) => void mod.enable("headphones", on)} />
+      {m.enabled && isActive(m) && (
+        <>
+          <Field focusable label="Profile" description={d.eq ? `${d.eq.name} · measured by ${d.eq.source} · ${d.filters} filters, preamp ${d.eq.preamp} dB` : "None yet"} />
+          <DropdownItem label="Headphones on" rgOptions={outputOptions} selectedOption={d.output ?? "wired"}
+            onChange={(o) => void mod.action("headphones", "set_output", { output: o.data })} />
+          <TextField label="Search your headphones" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <ButtonItem layout="below" disabled={busy || query.trim().length < 2} onClick={() => void search()}>Search AutoEQ</ButtonItem>
+          {results && results.length === 0 && <Field focusable label="Nothing found" />}
+          {(results ?? []).map((e) => (
+            <ButtonItem key={e.path} layout="inline" label={e.name} description={e.source} disabled={busy} onClick={() => void select(e)}>
+              Use
+            </ButtonItem>
+          ))}
+          {d.eq && (
+            <ButtonItem layout="below" disabled={busy} onClick={() => void mod.action("headphones", "clear")}>Remove the profile</ButtonItem>
+          )}
+        </>
+      )}
+    </DialogControlsSection>
+  );
+}
+
 export function Audio() {
   const m = useModule("audio");
   if (!m) return null;
@@ -147,6 +227,8 @@ export function Audio() {
       {isActive(m) && <Setup m={m} />}
       {isActive(m) && done && <Presets m={m} />}
       {isActive(m) && done && <Extras m={m} />}
+      <Microphone />
+      <Headphones />
     </DialogBody>
   );
 }

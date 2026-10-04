@@ -46,6 +46,34 @@ class CpuBoost(Module):
         self._kick_requested = False
         self._kicks = 0
         self._last_kick = ""
+        self._override: Optional[bool] = None  # game profile: True = keep boost off, False = boost on
+
+    @property
+    def active(self) -> bool:
+        """Whether boost is kept off right now: the setting, unless a game profile says otherwise."""
+        return self.enabled if self._override is None else self._override
+
+    async def reapply_if_enabled(self, force: bool = False) -> None:
+        if not self.active or not self.supported()[0]:
+            return
+        try:
+            await self.apply()
+            self.last_error = ""
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[cpu_boost] apply failed")
+            self.last_error = str(e)
+
+    async def set_override(self, values: Optional[Dict[str, Any]]) -> None:
+        """Game profile {"boost": bool}; None goes back to the setting."""
+        new = None if not values or "boost" not in values else not bool(values["boost"])
+        if new == self._override:
+            return
+        before = self.active
+        self._override = new
+        if self.active:
+            await self.reapply_if_enabled()
+        elif before:
+            await self.revert()
 
     def set_options(self, opts: Dict[str, Any]) -> bool:
         if "refreshOnCharger" in opts:
@@ -84,7 +112,7 @@ class CpuBoost(Module):
     def details(self) -> Dict[str, Any]:
         return {"boost": sysfs.read_str(sysfs.p(BOOST)), "refreshOnCharger": bool(self.cfg.get("refreshOnCharger", True)),
                 "overCapCores": self.over_cap_count(), "policies": len(policies()), "kicks": self._kicks,
-                "lastKick": self._last_kick,
+                "lastKick": self._last_kick, "override": self._override,
                 "watching": self._watch_task is not None and not self._watch_task.done()}
 
     async def start(self) -> None:
@@ -102,7 +130,7 @@ class CpuBoost(Module):
         await self.reapply_if_enabled()
 
     async def refresh_now(self) -> None:
-        if not self.enabled:
+        if not self.active:
             raise RuntimeError("CPU boost off is not enabled")
         self.schedule_refresh("manual")
 
@@ -140,7 +168,7 @@ class CpuBoost(Module):
             logger.info("[cpu_boost] cap kicked on %d policies (%s)", len(saved), reason)
 
     async def _on_power_event(self, event: Dict[str, str]) -> None:
-        if not self.enabled or not self.cfg.get("refreshOnCharger", True):
+        if not self.active or not self.cfg.get("refreshOnCharger", True):
             return
         if event.get("ACTION") != "change" or event.get("POWER_SUPPLY_TYPE") != "Mains":
             return
@@ -167,7 +195,7 @@ class CpuBoost(Module):
         await self.notify()
         while loop.time() < self._watch_until:
             await asyncio.sleep(WATCH_POLL_S)
-            if not self.enabled:
+            if not self.active:
                 return
             if self._kick_requested:
                 self._kick_requested = False

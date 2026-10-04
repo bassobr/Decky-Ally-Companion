@@ -4,21 +4,28 @@ The charge limit goes through steamos-manager (BatteryChargeLimit1 on the sessio
 interface Steam's own setting uses, so both always agree. asus-armoury adds the MCU power saving
 switch (with it on, the controller MCU loses its settings in sleep, which the vibration and
 lighting modules re-send) and the POST boot sound.
+
+"Charge to 100 % once" lifts the limit until the battery reports full, then puts it back. The
+health history keeps one sample per day (full and design energy), read from sysfs once an hour.
 """
 from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any, Dict, Optional, Tuple
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 from .. import dbus, sysfs
 from ..constants import STEAMOS_MANAGER_BUS, STEAMOS_MANAGER_PATH
 from ..log import logger
-from ..module import Module
+from ..module import Module, cancel_task
 
 BAT = "sys/class/power_supply/BAT0"
 ARMOURY = "sys/class/firmware-attributes/asus-armoury/attributes"
 CHARGE_IFACE = f"{STEAMOS_MANAGER_BUS}.BatteryChargeLimit1"
+HISTORY_CHECK_S = 3600
+HISTORY_MAX = 400
+FULL_ONCE_POLL_S = 120
 
 
 def armoury(name: str) -> Optional[str]:
@@ -49,14 +56,33 @@ def battery_info() -> Dict[str, Any]:
     }
 
 
+def history_sample(info: Dict[str, Any], day: str) -> Optional[Dict[str, Any]]:
+    if info.get("healthPct") is None:
+        return None
+    return {"d": day, "h": info["healthPct"], "e": info["energyFullWh"], "c": info.get("cycles")}
+
+
+def add_sample(history: List[Dict[str, Any]], sample: Optional[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
+    """The history with today's sample appended, or None when today is already in it."""
+    if sample is None or (history and history[-1].get("d") == sample["d"]):
+        return None
+    return (list(history) + [sample])[-HISTORY_MAX:]
+
+
 class Battery(Module):
     id = "battery"
     title = "Battery"
-    defaults: Dict[str, Any] = {}
+    defaults: Dict[str, Any] = {"fullOnce": None, "history": []}
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._history_task: Optional[asyncio.Task] = None
+        self._full_task: Optional[asyncio.Task] = None
 
     def actions(self):
         return {"set_charge_limit": self.set_charge_limit, "set_mcu_powersave": self.set_mcu_powersave,
-                "set_boot_sound": self.set_boot_sound}
+                "set_boot_sound": self.set_boot_sound, "charge_full_once": self.charge_full_once,
+                "cancel_full_once": self.cancel_full_once}
 
     def supported(self) -> Tuple[bool, str]:
         if not os.path.isdir(sysfs.p(BAT)):
@@ -76,7 +102,60 @@ class Battery(Module):
             "mcuPowersave": None if mcu is None else mcu == "1",
             "bootSound": None if sound is None else sound == "1",
             "pendingReboot": armoury("pending_reboot") == "1",
+            "fullOnce": self.cfg.get("fullOnce") is not None,
+            "history": self.cfg.get("history") or [],
         }
+
+    async def start(self) -> None:
+        self._history_task = asyncio.get_event_loop().create_task(self._history_loop())
+        if self.cfg.get("fullOnce") is not None:
+            self._watch_full()
+
+    async def stop(self) -> None:
+        await cancel_task(self._history_task)
+        await cancel_task(self._full_task)
+
+    async def _history_loop(self) -> None:
+        while True:
+            new = add_sample(self.cfg.get("history") or [],
+                             history_sample(await asyncio.to_thread(battery_info), time.strftime("%Y-%m-%d")))
+            if new is not None:
+                self.update_cfg({"history": new})
+            await asyncio.sleep(HISTORY_CHECK_S)
+
+    async def charge_full_once(self) -> None:
+        if self.cfg.get("fullOnce") is not None:
+            return
+        limit = dbus.get_property(STEAMOS_MANAGER_BUS, STEAMOS_MANAGER_PATH, CHARGE_IFACE, "MaxChargeLevel", user_bus=True)
+        if not isinstance(limit, int) or limit <= 0:
+            raise RuntimeError("no charge limit is set")
+        self.update_cfg({"fullOnce": limit})
+        await self.set_charge_limit(None)
+        logger.info("[battery] charging to 100 %% once, then back to %d %%", limit)
+        self._watch_full()
+
+    async def cancel_full_once(self) -> None:
+        prev = self.cfg.get("fullOnce")
+        await cancel_task(self._full_task)
+        if prev is not None:
+            await self.set_charge_limit(int(prev))
+            self.update_cfg({"fullOnce": None})
+
+    def _watch_full(self) -> None:
+        if self._full_task is None or self._full_task.done():
+            self._full_task = asyncio.get_event_loop().create_task(self._full_loop())
+
+    async def _full_loop(self) -> None:
+        while self.cfg.get("fullOnce") is not None:
+            info = await asyncio.to_thread(battery_info)
+            if info.get("status") == "Full" or (info.get("capacity") or 0) >= 100:
+                prev = int(self.cfg["fullOnce"])
+                await self.set_charge_limit(prev)
+                self.update_cfg({"fullOnce": None})
+                logger.info("[battery] full; charge limit back to %d %%", prev)
+                await self.notify()
+                return
+            await asyncio.sleep(FULL_ONCE_POLL_S)
 
     async def set_charge_limit(self, level: Optional[int] = None) -> None:
         """level None or 100: no limit."""

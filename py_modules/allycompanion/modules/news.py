@@ -131,7 +131,7 @@ def steamos_channel() -> str:
 class News(Module):
     id = "news"
     title = "News"
-    defaults = {"items": [], "fetchedAt": 0, "lastAttempt": 0, "error": None, "seen": [], "channel": None}
+    defaults = {"items": [], "fetchedAt": 0, "lastAttempt": 0, "error": None, "seen": [], "notified": [], "channel": None}
 
     def __init__(self) -> None:
         super().__init__()
@@ -164,8 +164,20 @@ class News(Module):
         self.update_cfg({"items": items, "fetchedAt": int(time.time()), "error": "; ".join(errors) or None})
         if errors:
             logger.warning("[news] %s", "; ".join(errors))
+        await self._announce()
         await self.notify()
         return {"unseen": len(self.unseen())}
+
+    async def _announce(self) -> None:
+        """One toast per unseen item, once."""
+        notified = set(self.cfg.get("notified") or [])
+        fresh = [it for it in self.cfg.get("items") or [] if it["id"] in self.unseen() and it["id"] not in notified]
+        if not fresh:
+            return
+        self.update_cfg({"notified": sorted(notified | {it["id"] for it in fresh})[-200:]})
+        if self.ctx:
+            await self.ctx.emit("news_new", [{"id": it["id"], "kind": it["kind"], "title": it["title"],
+                                              "version": it.get("version")} for it in fresh])
 
     def _collect(self) -> Tuple[List[Dict[str, Any]], List[str]]:
         info = device.info()

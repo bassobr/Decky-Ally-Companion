@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, List, Optional, Type
 
-from . import conflicts
+from . import conflicts, settings as settings_mod
 from .log import logger
 from .module import Context, Module
 
@@ -101,3 +101,29 @@ class Registry:
         # Not filtered by supported(): when the cleanup runs, the plugin's own files (shim, LV2
         # bundle) that some supported() checks look for are already gone.
         await self._each("uninstall", only_supported=False, skip_blocked=False)
+
+    async def restore(self, sections: Dict[str, Any]) -> List[str]:
+        """Replace module sections (from a backup) and bring the hardware in line; returns the ids."""
+        done = []
+        for mid, data in sections.items():
+            m = self.modules.get(mid)
+            if m is None or not isinstance(data, dict):
+                continue
+            was_enabled = m.enabled
+            new = settings_mod.merge(dict(m.defaults), data)
+            m.cfg.clear()
+            m.cfg.update(new)  # same dict object as in the settings tree
+            done.append(mid)
+            if not m.supported()[0] or mid in self.blocked:
+                continue
+            try:
+                await m.stop()
+                if m.toggle and was_enabled and not m.enabled:
+                    await m.revert()
+                await m.start()
+            except Exception as e:  # noqa: BLE001
+                logger.exception("[%s] restore failed", mid)
+                m.last_error = f"restore failed: {e}"
+        if self.ctx:
+            self.ctx.save()
+        return done
