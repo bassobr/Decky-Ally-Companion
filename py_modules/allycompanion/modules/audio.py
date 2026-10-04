@@ -242,10 +242,8 @@ class Audio(Module):
         await cancel_task(self.convert_task)
 
     async def uninstall(self) -> None:
-        try:
-            await asyncio.to_thread(self.worker.run, ["remove"])
-        except WorkerError as e:
-            logger.warning("[audio] removing the unit failed: %s", e)
+        # In-process: the cleanup runs after the plugin directory (and the worker) is gone.
+        await asyncio.to_thread(dsp_runtime.remove_unit)
         shutil.rmtree(dsp_paths.RUNTIME_DIR, ignore_errors=True)
 
     async def on_app_changed(self, app_id: Optional[str]) -> None:

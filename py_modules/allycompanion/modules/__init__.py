@@ -1,5 +1,6 @@
 """Feature modules in display order. The frontend groups them into pages (Audio: audio; Controller: vibration,
-gyro, gamepad_layout; Power & battery: cpu_boost, fan, battery; Lighting: lighting)."""
+gyro, gamepad_layout; Power & battery: cpu_boost, fan, battery; Lighting: lighting; Game profiles: profiles;
+News: news)."""
 from __future__ import annotations
 
 from typing import List, Type
@@ -12,6 +13,8 @@ from .fan import Fan
 from .gamepad_layout import GamepadLayout
 from .gyro import Gyro
 from .lighting import Lighting
+from .news import News
+from .profiles import Profiles
 from .vibration import Vibration
 
-MODULES: List[Type[Module]] = [Audio, Vibration, Gyro, GamepadLayout, CpuBoost, Fan, Battery, Lighting]
+MODULES: List[Type[Module]] = [Audio, Vibration, Gyro, GamepadLayout, CpuBoost, Fan, Battery, Lighting, Profiles, News]

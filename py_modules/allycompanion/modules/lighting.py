@@ -88,8 +88,10 @@ class Lighting(Module):
 
     async def set_override(self, values: Optional[Dict[str, Any]]) -> None:
         """Per-game values (profiles module); None clears them."""
-        self._override = {k: v for k, v in (values or {}).items() if k in self.defaults and k != "enabled"}
-        await self.reapply_if_enabled()
+        new = {k: v for k, v in (values or {}).items() if k in self.defaults and k != "enabled"}
+        if new != self._override:
+            self._override = new
+            await self.reapply_if_enabled()
 
     # ------------------------------------------------------------- module interface
     def supported(self) -> Tuple[bool, str]:

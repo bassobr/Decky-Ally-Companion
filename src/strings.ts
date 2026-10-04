@@ -38,7 +38,6 @@ export const t = {
   noModules: "No modules.",
   notSupported: "Not supported",
 
-  planned: "Planned",
   version: "Version",
   checkUpdate: "Check for updates",
   upToDate: "Up to date",
@@ -46,14 +45,4 @@ export const t = {
   createReport: "Create report",
   reportSaved: "Also saved to ~/homebrew/logs/Ally Companion/diagnostics.txt",
   source: "Source code",
-};
-
-/** What each planned page will hold; shown until its module exists. */
-export const plannedPages: Record<string, string[]> = {
-  profiles: ["Per-game overrides of every module in one list"],
-  news: [
-    "SteamOS releases for the installed channel",
-    "BIOS updates from ASUS for this board",
-    "Known issues between SteamOS versions and this plugin",
-  ],
 };

@@ -27,6 +27,8 @@ class Context:
         self.uevent = uevent
         self.settings = settings or {}  # the whole settings tree, read-only for modules
         self.running_app: Optional[str] = None
+        self.modules: Dict[str, "Module"] = {}  # the other modules, for the profiles module
+        self.blocked: Dict[str, str] = {}  # module id -> plugin that drives the same hardware
 
 
 async def cancel_task(task: "Optional[asyncio.Task]") -> None:

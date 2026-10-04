@@ -1,4 +1,3 @@
-import os
 
 from allydsp import asus_fetch, hardware
 

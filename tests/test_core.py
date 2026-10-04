@@ -268,3 +268,17 @@ def test_repository_without_releases_is_not_an_error(monkeypatch):
     monkeypatch.setattr(updater, "run", lambda cmd, **kw: util.Result(22, "", "curl: (22) The requested URL returned error: 403"))
     with pytest.raises(RuntimeError):
         updater.fetch_latest()
+
+
+def test_cleanup_copies_both_packages_and_schedules(tmp_path, monkeypatch):
+    from allycompanion import cleanup
+    monkeypatch.setattr(paths, "RUNTIME_DIR", str(tmp_path / "data"))
+    calls = []
+    monkeypatch.setattr(cleanup, "run", lambda cmd, **kw: calls.append(cmd) or util.Result(0, "", ""))
+    assert cleanup.schedule()
+    for pkg in ("allycompanion", "allydsp"):
+        assert os.path.isfile(os.path.join(cleanup.copy_dir(), pkg, "__init__.py"))
+    cmd = calls[0]
+    assert cmd[:3] == ["systemd-run", "--collect", "--unit=ally-companion-cleanup"]
+    assert f"PYTHONPATH={cleanup.copy_dir()}" in cmd
+    assert cmd[-4:] == ["/usr/bin/python3", "-m", "allycompanion.cli", "cleanup"]

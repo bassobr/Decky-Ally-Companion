@@ -5,7 +5,7 @@ import pytest
 
 from allycompanion import conflicts, migrate, paths, util
 from allycompanion.module import Context
-from allycompanion.modules import MODULES, battery, cpu_boost, fan, gamepad_layout, gyro, lighting, vibration
+from allycompanion.modules import MODULES, battery, cpu_boost, fan, gamepad_layout, gyro, lighting, news, profiles, vibration
 from allycompanion.registry import Registry
 
 STOCK = """name: ASUS ROG Xbox Ally
@@ -44,7 +44,8 @@ def _module(cls, cfg=None):
 
 def test_all_modules_have_unique_ids_and_json_defaults():
     reg = Registry(MODULES)
-    assert list(reg.modules) == ["audio", "vibration", "gyro", "gamepad_layout", "cpu_boost", "fan", "battery", "lighting"]
+    assert list(reg.modules) == ["audio", "vibration", "gyro", "gamepad_layout", "cpu_boost", "fan", "battery", "lighting",
+                                 "profiles", "news"]
     util.write_json  # defaults must be JSON-serialisable
     import json
     json.dumps(reg.defaults())
@@ -200,3 +201,74 @@ def test_conflicts_and_migration(tmp_path, monkeypatch):
     assert s["modules"]["cpu_boost"]["refreshOnCharger"] is False
     assert s["modules"]["fan"]["curves"] == {}
     assert migrate.run(s, reg.defaults()) == []  # once only
+
+
+# ------------------------------------------------------------------ news
+
+STEAM = {"appnews": {"newsitems": [
+    {"title": "SteamOS 3.9.2 Beta", "date": 3, "url": "u3", "contents": "[list][*]Improved ROG Ally gyro[*]Other fix[/list]"},
+    {"title": "SteamOS 3.8.28", "date": 2, "url": "u2", "contents": "[list][*]Fixed InputPlumber crash on resume[/list]"},
+    {"title": "SteamOS 3.9.1 Preview", "date": 1, "url": "u1", "contents": ""},
+    {"title": "Steam Beta Client Update", "date": 4, "url": "u4", "contents": ""},
+]}}
+
+
+def test_steamos_news_follow_the_channel():
+    stable = news.steamos_items(STEAM, news.CHANNELS["rel"], (3, 8, 27))
+    assert [i["version"] for i in stable] == ["3.8.28"] and stable[0]["newer"]
+    assert stable[0]["highlights"] == ["Fixed InputPlumber crash on resume"]
+    beta = news.steamos_items(STEAM, news.CHANNELS["beta"], (3, 8, 28))
+    assert [i["title"] for i in beta] == ["SteamOS 3.9.2 Beta", "SteamOS 3.8.28"]
+    assert beta[0]["newer"] and not beta[1]["newer"] and beta[0]["highlights"] == ["Improved ROG Ally gyro"]
+
+
+def test_bios_and_issues():
+    data = {"Result": {"Obj": [
+        {"Name": "BIOS", "Files": [{"Version": "318", "Title": "BIOS for ASUS EZ Flash Utility", "ReleaseDate": "2026/09/01",
+                                    "DownloadUrl": {"Global": "/pub/x/RC73XAAS318.zip"}, "sha256": "AB"}]},
+        {"Name": "BIOS Update (Windows)", "Files": [{"Version": "318"}]},
+    ]}}
+    items = news.bios_items(data, "RC73XA.317")
+    assert len(items) == 1 and items[0]["newer"] and items[0]["url"] == "https://dlcdnets.asus.com/pub/x/RC73XAAS318.zip"
+    assert items[0]["sha256"] == "ab"
+    assert not news.bios_items(data, "RC73XA.318")[0]["newer"]
+    issues = {"issues": [{"id": "a", "title": "A", "steamosFrom": "3.9.0"}, {"id": "b", "title": "B", "boards": ["RC72LA"]},
+                         {"id": "c", "title": "C"}]}
+    assert [i["id"] for i in news.issue_items(issues, (3, 8, 28), "RC73XA")] == ["issue:c"]
+
+
+def test_news_unseen_and_mark_seen():
+    m = _module(news.News, {"items": [{"id": "a", "newer": True}, {"id": "b", "newer": False}]})
+    assert m.unseen() == ["a"]
+    asyncio.run(m.mark_seen())
+    assert m.unseen() == []
+
+
+# ------------------------------------------------------------------ profiles
+
+class _Target:
+    def __init__(self):
+        self.values = "unset"
+
+    def supported(self):
+        return True, ""
+
+    async def set_override(self, values):
+        self.values = values
+
+
+def test_profiles_push_overrides_on_app_change():
+    m = _module(profiles.Profiles)
+    light, vib = _Target(), _Target()
+    m.ctx.modules = {"lighting": light, "vibration": vib}
+    asyncio.run(m.set_app(appId="42", part="lighting", values={"color": "#00ff00"}, name="Game"))
+    assert light.values == "unset"  # not running yet
+    asyncio.run(m.on_app_changed("42"))
+    assert light.values == {"color": "#00ff00"} and vib.values is None
+    asyncio.run(m.set_app(appId="42", part="vibration", values={"left": 20}))
+    assert vib.values == {"left": 20}
+    asyncio.run(m.on_app_changed(None))
+    assert light.values is None and vib.values is None
+    asyncio.run(m.set_app(appId="42", part="lighting", values=None))
+    asyncio.run(m.set_app(appId="42", part="vibration", values=None))
+    assert m.apps() == {}

@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "issues": [
+    {
+      "id": "decky-socket-eof",
+      "date": "2026-10-03",
+      "title": "Decky Loader 3.2.9 and 3.2.10-pre1 skip the cleanup of other plugins",
+      "body": "When Decky stops a plugin, its socket loop spins and the plugin is killed after 5 s, so an uninstall often skips the plugin's own cleanup. Ally Companion works around it and takes over what Ally Fix and Ally DSP left behind.",
+      "url": "https://github.com/SteamDeckHomebrew/decky-loader/issues/975"
+    }
+  ]
+}

@@ -7,9 +7,10 @@ import { t } from "../strings";
 import { Audio } from "./Audio";
 import { Controller } from "./Controller";
 import { Lighting } from "./Lighting";
+import { News } from "./News";
 import { Overview } from "./Overview";
-import { Planned } from "./Planned";
 import { Power } from "./Power";
+import { Profiles } from "./Profiles";
 import { System } from "./System";
 
 /** Everything beyond the sidebar essentials, laid out like Steam's own settings. */
@@ -28,7 +29,6 @@ export function Fullscreen() {
 
   const page = (identifier: string, title: string, icon: ReactNode, content: ReactNode): SidebarNavigationPage =>
     ({ identifier, title, icon, route: `${ROUTE}/${identifier}`, content });
-  const planned = (identifier: string, title: string, icon: ReactNode) => page(identifier, title, icon, <Planned page={identifier} />);
 
   const pages: (SidebarNavigationPage | "separator")[] = [
     page("overview", t.overview, <FaInfoCircle />, <Overview state={state} />),
@@ -37,8 +37,8 @@ export function Fullscreen() {
     page("controller", t.controller, <FaGamepad />, <Controller />),
     page("lighting", t.lighting, <FaLightbulb />, <Lighting />),
     page("power", t.power, <FaBatteryHalf />, <Power />),
-    planned("profiles", t.profiles, <FaListUl />),
-    planned("news", t.news, <FaNewspaper />),
+    page("profiles", t.profiles, <FaListUl />, <Profiles />),
+    page("news", t.news, <FaNewspaper />, <News />),
     "separator",
     page("system", t.system, <FaCog />, <System state={state} refresh={refresh} />),
   ];

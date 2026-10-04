@@ -43,7 +43,7 @@ function hexToHsl(hex: string): [number, number, number] {
   return [Math.round(h * 60), Math.round(s * 100), Math.round(l * 100)];
 }
 
-function pickColor(title: string, current: string, onPick: (hex: string) => void) {
+export function pickColor(title: string, current: string, onPick: (hex: string) => void) {
   const [h, s, l] = hexToHsl(current);
   showModal(
     <ColorPickerModal closeModal={() => {}} title={title} defaultH={h} defaultS={s} defaultL={l} defaultA={1}
@@ -54,7 +54,7 @@ function pickColor(title: string, current: string, onPick: (hex: string) => void
   );
 }
 
-function Swatch({ color }: { color: string }) {
+export function Swatch({ color }: { color: string }) {
   return <span style={{ display: "inline-block", width: 28, height: 18, borderRadius: 4, background: color, border: "1px solid #fff4" }} />;
 }
 

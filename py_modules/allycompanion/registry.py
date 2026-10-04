@@ -26,6 +26,8 @@ class Registry:
     def bind(self, settings: Dict[str, Any], ctx: Context) -> None:
         self.ctx = ctx
         ctx.settings = settings
+        ctx.modules = self.modules
+        ctx.blocked = self.blocked
         for mid, m in self.modules.items():
             m.bind(settings["modules"][mid], ctx)
 
@@ -35,7 +37,8 @@ class Registry:
         return self.modules[mid]
 
     def refresh_blocked(self) -> None:
-        self.blocked = conflicts.blocked()
+        self.blocked.clear()  # the context holds the same dict
+        self.blocked.update(conflicts.blocked())
 
     def check_not_blocked(self, mid: str) -> None:
         if mid in self.blocked:

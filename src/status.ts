@@ -7,6 +7,8 @@ export function warnings(s: PluginState): string[] {
   if (!s.device.supported) out.push(`${t.unsupported} (${s.device.board || "?"})`);
   if (!s.stack.inputplumber.present) out.push(`${t.inputplumber} ${t.notRunning}`);
   for (const p of s.conflicts) out.push(`${p} is installed: its features stay with it until you uninstall it`);
+  const unseen = s.modules.news?.details.unseen?.length ?? 0;
+  if (unseen) out.push(`${unseen} news`);
   for (const m of Object.values(s.modules)) {
     if (m.state === "error" || m.state === "stale") out.push(`${m.title}: ${m.message}`);
     if (m.state === "restart_pending") out.push(`${m.title}: restart Steam to apply`);

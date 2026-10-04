@@ -100,11 +100,21 @@ class Vibration(Module):
         self._ff: Optional[hidbpf.FfFilter] = None
         self._ff_error = ""
         self._ff_stale = False  # the hid device was re-created; re-attach even if the id repeats
+        self._override: Optional[Tuple[int, int]] = None  # per-game strength (profiles module)
 
     # ------------------------------------------------------------- options
     @property
     def intensity(self) -> Tuple[int, int]:
+        if self._override is not None:
+            return self._override
         return clamp(self.cfg.get("left", 50)), clamp(self.cfg.get("right", 50))
+
+    async def set_override(self, values: Optional[Dict[str, Any]]) -> None:
+        """Per-game strength from the profiles module; None goes back to the setting."""
+        new = (clamp(values.get("left", 50)), clamp(values.get("right", values.get("left", 50)))) if values else None
+        if new != self._override:
+            self._override = new
+            await self.reapply_if_enabled()
 
     @property
     def enhanced(self) -> bool:
@@ -152,9 +162,9 @@ class Vibration(Module):
 
     def details(self) -> Dict[str, Any]:
         hw = self._read_hw()
-        left, right = self.intensity
         return {
-            "left": left, "right": right, "linked": bool(self.cfg.get("linked", True)),
+            "left": clamp(self.cfg.get("left", 50)), "right": clamp(self.cfg.get("right", 50)),
+            "linked": bool(self.cfg.get("linked", True)), "override": list(self._override) if self._override else None,
             "enhanced": self.enhanced, "enhancedSupported": device.is_xbox_ally(),
             "mirrorTriggers": self.mirror_triggers, "mirrorSupported": device.has_impulse_triggers(),
             "hw": list(hw) if hw else None,
