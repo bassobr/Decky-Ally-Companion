@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 (2026-10-04)
+
+- Uninstall also reverts the gamepad layout and the speaker DSP unit: the cleanup no longer skips
+  modules whose support check looks for plugin files that are already gone.
+
 ## 0.2.0 (2026-10-04)
 
 - Audio: Dolby speaker tuning from Ally DSP (setup, profiles and voicings, per-game presets,

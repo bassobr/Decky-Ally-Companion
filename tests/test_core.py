@@ -282,3 +282,16 @@ def test_cleanup_copies_both_packages_and_schedules(tmp_path, monkeypatch):
     assert cmd[:3] == ["systemd-run", "--collect", "--unit=ally-companion-cleanup"]
     assert f"PYTHONPATH={cleanup.copy_dir()}" in cmd
     assert cmd[-4:] == ["/usr/bin/python3", "-m", "allycompanion.cli", "cleanup"]
+
+
+def test_uninstall_reverts_modules_whose_plugin_files_are_gone(monkeypatch):
+    class Gone(FakeModule):
+        id = "gone"
+
+        def supported(self):
+            return False, "liballycaps.so missing from the plugin"
+
+    reg, s = _bound([Gone])
+    s["modules"]["gone"]["enabled"] = True
+    asyncio.run(reg.uninstall())
+    assert reg.get("gone").events == ["revert"]

@@ -98,4 +98,6 @@ class Registry:
         await self._each("on_app_changed", app_id)
 
     async def uninstall(self) -> None:
-        await self._each("uninstall")
+        # Not filtered by supported(): when the cleanup runs, the plugin's own files (shim, LV2
+        # bundle) that some supported() checks look for are already gone.
+        await self._each("uninstall", only_supported=False, skip_blocked=False)
