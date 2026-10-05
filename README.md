@@ -6,8 +6,7 @@ other distributions. It builds on what SteamOS already ships (InputPlumber, stea
 ASUS kernel drivers) instead of replacing it, and it replaces two earlier plugins:
 [Ally DSP](https://github.com/bassobr/decky-ally-dsp) and [Ally Fix](https://github.com/lonsdaleite/Ally-Fix).
 
-Verified on the ROG Xbox Ally X and the ROG Ally X (SteamOS 3.8.28). Enhanced Vibration and the
-rumble on the impulse triggers are Xbox Ally X only.
+Tested on both devices; see [Tested devices](#tested-devices) for the few differences.
 
 | Page | What it does |
 |---|---|
@@ -28,6 +27,27 @@ Steam's Settings → Ally Companion).
 Coming from Ally Fix or Ally DSP: install Ally Companion, then uninstall the old plugin in Decky.
 Until then the matching pages stay passive. Settings, the Dolby tuning and the converter
 environment are taken over; nothing has to be set up again.
+
+## Tested devices
+
+| Device | Board | APU | Tested with |
+|---|---|---|---|
+| ROG Xbox Ally X | RC73XA | Ryzen AI Z2 Extreme | BIOS 317, SteamOS 3.8.28, Decky Loader 3.2.10-pre1 |
+| ROG Ally X | RC72LA | Ryzen Z1 Extreme | BIOS 312, SteamOS 3.8.28, Decky Loader 3.2.9 |
+
+All pages work on both. Differences:
+
+- **Enhanced Vibration** and **rumble on the impulse triggers** are Xbox Ally X only. The Ally X
+  has no trigger motors, and whether its controller knows Enhanced Vibration is unknown.
+- **CPU boost**: on the Xbox Ally X the firmware drops the frequency cap on every charger plug and
+  the plugin re-sends it. On the Ally X the cap holds (measured), so only "keep boost off" is
+  offered there.
+- **Gyro fix** on the Ally X: InputPlumber presents it with the same controller id and sensor
+  orientation as the Xbox Ally X, and the fix applies and reverts the same way. The axes in Steam
+  have not been checked by hand there yet.
+
+Other models (the original ROG Ally, the ROG Xbox Ally) are not targeted. Open checks are listed in
+[docs/roadmap.md](docs/roadmap.md).
 
 ## Install
 

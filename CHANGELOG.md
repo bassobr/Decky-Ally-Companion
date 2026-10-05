@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2 (2026-10-05)
+
+- README: tested devices with firmware and software versions, and what differs between the ROG
+  Xbox Ally X and the ROG Ally X.
+
 ## 0.4.1 (2026-10-05)
 
 - CPU boost on the ROG Ally X: the frequency cap survives charger events there (measured with
