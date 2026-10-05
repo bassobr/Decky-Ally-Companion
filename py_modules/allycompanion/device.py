@@ -15,7 +15,7 @@ LED_DIR = "sys/class/leds/ally:rgb:joystick_rings"
 ARMOURY_DIR = "sys/class/firmware-attributes/asus-armoury/attributes"
 
 
-XBOX_ALLY_BOARDS = ("RC73XA", "RC73YA")  # MCU with Enhanced Vibration; InputPlumber config 50-rog_xbox_ally
+XBOX_ALLY_BOARDS = ("RC73XA", "RC73YA")  # MCU with Enhanced Vibration
 IMPULSE_TRIGGER_BOARDS = ("RC73XA",)  # motors in the triggers
 
 

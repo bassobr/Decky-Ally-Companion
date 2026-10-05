@@ -59,6 +59,7 @@ def test_gyro_modes_patch_exactly_one_thing():
     c = gyro.patch(STOCK, "complex")
     assert "y: [0, 0, -1]" in c and "z: [0, -1, 0]" in c
     assert "name: ASUS ROG Xbox Ally (Deck Emulation)" in gyro.patch(STOCK, "deck")
+    assert "name: ASUS ROG Ally X (Deck Emulation)\n" in gyro.patch(STOCK.replace("Xbox Ally", "Ally X"), "deck")
     with pytest.raises(RuntimeError):
         gyro.patch(STOCK.replace("y: [0, -1, 0]", "y: [0, 1, 0]"), "simple")
     rendered = gyro.render(STOCK, "a" * 64, "simple")
@@ -82,8 +83,8 @@ def test_gyro_takes_over_ally_fix_override(tmp_path, monkeypatch):
     stock = tmp_path / "stock.yaml"
     stock.write_text(STOCK)
     override = tmp_path / "override.yaml"
-    monkeypatch.setattr(gyro, "STOCK", str(stock))
-    monkeypatch.setattr(gyro, "OVERRIDE", str(override))
+    monkeypatch.setattr(gyro, "stock_path", lambda: str(stock))
+    monkeypatch.setattr(gyro, "override_path", lambda: str(override))
     m = _module(gyro.Gyro, {"enabled": True})
     assert m.override_state() == "absent"
     override.write_text(gyro.render(STOCK, gyro.sha256(str(stock)), "simple").replace("ally-companion", "ally-fix"))
@@ -94,6 +95,15 @@ def test_gyro_takes_over_ally_fix_override(tmp_path, monkeypatch):
     assert m.override_state() == "stale"
     override.write_text("name: something else\n")
     assert m.override_state() == "foreign"
+
+
+def test_gyro_config_follows_the_board(sysroot):
+    _write(sysroot, "sys/class/dmi/id/board_name", "RC72LA\n")
+    assert gyro.override_path() == "/etc/inputplumber/devices.d/50-rog_ally_x.yaml"
+    _write(sysroot, "sys/class/dmi/id/board_name", "RC73XA\n")
+    assert gyro.stock_path() == "/usr/share/inputplumber/devices/50-rog_xbox_ally.yaml"
+    _write(sysroot, "sys/class/dmi/id/board_name", "RC71L\n")
+    assert gyro.config_file() is None and not gyro.Gyro().supported()[0]
 
 
 # ------------------------------------------------------------------ gamepad layout

@@ -6,7 +6,8 @@ other distributions. It builds on what SteamOS already ships (InputPlumber, stea
 ASUS kernel drivers) instead of replacing it, and it replaces two earlier plugins:
 [Ally DSP](https://github.com/bassobr/decky-ally-dsp) and [Ally Fix](https://github.com/lonsdaleite/Ally-Fix).
 
-Verified on the ROG Xbox Ally X (SteamOS 3.8.28). The ROG Ally X is not tested yet.
+Verified on the ROG Xbox Ally X and the ROG Ally X (SteamOS 3.8.28). Enhanced Vibration and the
+rumble on the impulse triggers are Xbox Ally X only.
 
 | Page | What it does |
 |---|---|

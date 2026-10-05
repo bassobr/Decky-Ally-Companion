@@ -1,9 +1,10 @@
-"""Gamepad layout: hide the inputs the ROG Xbox Ally does not have from Steam Input.
+"""Gamepad layout: hide the inputs the ROG Xbox Ally X and ROG Ally X do not have from Steam Input.
 
 Ported from the Gamepad Layout Fix of Ally Fix (https://github.com/lonsdaleite/Ally-Fix, MIT).
 
 Steam builds the Ally's capability mask from a constant in steamclient.so and shows trackpads,
-capacitive sticks and four rear buttons. Two layers:
+capacitive sticks and four rear buttons. InputPlumber presents both models with the same
+product id, so the same patch fits both. Two layers:
 
 - native: bin/liballycaps.so, an LD_PRELOAD shim for the `steam` process that patches the
   capability constant in memory (TRACKPAD and CAPJOYSTICK cleared). It reaches the client through
@@ -117,8 +118,8 @@ class GamepadLayout(Module):
         return {"report_ui": self.report_ui}
 
     def supported(self) -> Tuple[bool, str]:
-        if not device.is_xbox_ally():
-            return False, f"needs a ROG Xbox Ally (board {device.board() or 'unknown'})"
+        if not device.supported():
+            return False, f"needs a ROG Xbox Ally X or ROG Ally X (board {device.board() or 'unknown'})"
         if not os.path.isfile(steam.UNIT_FILE):
             return False, f"{steam.SERVICE} not found (SteamOS gaming mode only)"
         if not all(os.path.isfile(src) for src in libs().values()):

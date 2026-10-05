@@ -13,7 +13,9 @@ and the legacy Camera action of Valve's Source layouts) apply that tilt differen
 - deck: composite device renamed so InputPlumber emulates the generic id with the stock matrix.
   Everything right, but layouts saved for the ROG Ally no longer apply.
 
-The override in /etc/inputplumber/devices.d is generated from the installed stock file and stamped
+The ROG Xbox Ally X and the ROG Ally X get the same product id and IMU mount matrix from
+InputPlumber, each from its own config file. The override in /etc/inputplumber/devices.d has the
+name of that file, is generated from the installed stock file and stamped
 with its hash, so an InputPlumber update is detected (stale) and the override regenerated.
 Overrides written by Ally Fix are taken over.
 """
@@ -32,15 +34,19 @@ from ..log import logger
 from ..module import Module
 from ..util import run
 
-STOCK = "/usr/share/inputplumber/devices/50-rog_xbox_ally.yaml"
+STOCK_DIR = "/usr/share/inputplumber/devices"
 OVERRIDE_DIR = "/etc/inputplumber/devices.d"
-OVERRIDE = os.path.join(OVERRIDE_DIR, "50-rog_xbox_ally.yaml")
+CONFIG_FILES = {  # board -> InputPlumber config
+    "RC73XA": "50-rog_xbox_ally.yaml",
+    "RC73YA": "50-rog_xbox_ally.yaml",
+    "RC72LA": "50-rog_ally_x.yaml",
+}
 MARKER = "managed-by: ally-companion"
 FOREIGN_MANAGED = ("managed-by: ally-fix",)  # predecessors whose overrides are taken over
 TARGETS_CACHE_S = 10.0
 
 MODES = ("simple", "complex", "deck")
-DECK_NAME = "ASUS ROG Xbox Ally (Deck Emulation)"  # matches no arm in InputPlumber's PID table
+DECK_SUFFIX = " (Deck Emulation)"  # the renamed device matches no arm in InputPlumber's PID table
 
 CONVAR = "gyro_force_handheld_orientation"
 CONVAR_LINE = f"{CONVAR} 2"
@@ -48,7 +54,7 @@ COMPOSITE_IFACE = "org.shadowblip.Input.CompositeDevice"
 
 _ROW_Y = re.compile(r"^([ \t]*)y:[ \t]*\[\s*0\s*,\s*-1\s*,\s*0\s*\][ \t]*$", re.M)
 _ROW_Z = re.compile(r"^([ \t]*)z:[ \t]*\[\s*0\s*,\s*0\s*,\s*-1\s*\][ \t]*$", re.M)
-_NAME = re.compile(r"^name:[ \t]*ASUS ROG Xbox Ally[ \t]*$", re.M)
+_NAME = re.compile(r"^name:[ \t]*(ASUS ROG [^\r\n#]*?)[ \t]*$", re.M)
 _HASH_LINE = re.compile(r"^# stock-sha256:\s*([0-9a-f]{64})\s*$", re.M)
 
 _MODE_NOTE = {
@@ -58,6 +64,18 @@ _MODE_NOTE = {
     "deck": "the composite device is renamed so InputPlumber emulates the generic\n"
             "# Steam Controller product id (Deck Emulation mode)",
 }
+
+
+def config_file() -> Optional[str]:
+    return CONFIG_FILES.get(device.board())
+
+
+def stock_path() -> str:
+    return os.path.join(STOCK_DIR, config_file() or "")
+
+
+def override_path() -> str:
+    return os.path.join(OVERRIDE_DIR, config_file() or "")
 
 
 def steam_cfg() -> str:
@@ -80,7 +98,7 @@ def patch(stock_text: str, mode: str) -> str:
         text, n2 = _ROW_Z.subn(r"\1z: [0, -1, 0]", text, count=1)
         ok = n1 == 1 and n2 == 1
     elif mode == "deck":
-        text, n = _NAME.subn(f"name: {DECK_NAME}", stock_text, count=1)
+        text, n = _NAME.subn(lambda m: f"name: {m.group(1)}{DECK_SUFFIX}", stock_text, count=1)
         ok = n == 1
     else:
         raise ValueError(f"unknown gyro mode {mode!r}")
@@ -184,14 +202,15 @@ class Gyro(Module):
     # ------------------------------------------------------------- inspection
     def override_state(self) -> str:
         """absent | foreign | stale | mismatch | current"""
-        text = read_text(OVERRIDE)
+        stock = stock_path()
+        text = read_text(override_path())
         if text is None:
             return "absent"
         managed = MARKER in text or any(m in text for m in FOREIGN_MANAGED)
-        if not os.path.exists(STOCK):
+        if not os.path.exists(stock):
             return "stale" if managed else "foreign"
         if not managed:
-            stock_text = read_text(STOCK) or ""
+            stock_text = read_text(stock) or ""
             for m in MODES:
                 try:
                     if body(text) == body(patch(stock_text, m)):
@@ -200,10 +219,10 @@ class Gyro(Module):
                     pass
             return "foreign"
         found = _HASH_LINE.search(text)
-        if not found or found.group(1) != sha256(STOCK):
+        if not found or found.group(1) != sha256(stock):
             return "stale"
         try:
-            expected = render(read_text(STOCK) or "", found.group(1), self.mode)
+            expected = render(read_text(stock) or "", found.group(1), self.mode)
         except RuntimeError:
             return "mismatch"
         return "current" if text == expected else "mismatch"
@@ -214,10 +233,11 @@ class Gyro(Module):
 
     # ------------------------------------------------------------- module interface
     def supported(self) -> Tuple[bool, str]:
-        if not device.is_xbox_ally():
-            return False, f"needs a ROG Xbox Ally (board {device.board() or 'unknown'})"
-        if not os.path.exists(STOCK):
-            return False, "InputPlumber config for the ROG Xbox Ally not found"
+        name = config_file()
+        if name is None:
+            return False, f"needs a ROG Xbox Ally or ROG Ally X (board {device.board() or 'unknown'})"
+        if not os.path.exists(stock_path()):
+            return False, f"InputPlumber config {name} not found"
         return True, ""
 
     def is_applied(self) -> bool:
@@ -229,7 +249,7 @@ class Gyro(Module):
             if ov == "stale":
                 return "stale", "InputPlumber was updated; the override needs to be regenerated"
             if ov == "foreign":
-                return "error", f"{OVERRIDE} exists but was not created by this plugin"
+                return "error", f"{override_path()} exists but was not created by this plugin"
         return state, message
 
     async def apply(self) -> None:
@@ -241,39 +261,41 @@ class Gyro(Module):
             await self._revert()
 
     async def _apply(self) -> None:
+        stock, override = stock_path(), override_path()
         state = self.override_state()
         if state == "foreign":
-            raise RuntimeError(f"{OVERRIDE} is not managed by this plugin; remove it manually first")
-        stock_text = read_text(STOCK) or ""
+            raise RuntimeError(f"{override} is not managed by this plugin; remove it manually first")
+        stock_text = read_text(stock) or ""
         try:
-            text = render(stock_text, sha256(STOCK), self.mode)
+            text = render(stock_text, sha256(stock), self.mode)
         except RuntimeError:
             if state == "stale":
-                os.remove(OVERRIDE)  # never leave an outdated full copy shadowing a newer stock config
+                os.remove(override)  # never leave an outdated full copy shadowing a newer stock config
                 await self._restart_inputplumber()
             raise
-        if read_text(OVERRIDE) != text:
-            os.makedirs(OVERRIDE_DIR, mode=0o755, exist_ok=True)
-            tmp = OVERRIDE + ".tmp"
+        if read_text(override) != text:
+            os.makedirs(os.path.dirname(override), mode=0o755, exist_ok=True)
+            tmp = override + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 f.write(text)
             os.chmod(tmp, 0o644)
-            os.replace(tmp, OVERRIDE)
+            os.replace(tmp, override)
             logger.info("[gyro] override written (mode %s)", self.mode)
             await self._restart_inputplumber()
         self._set_convar(self.mode == "complex")
 
     async def _revert(self) -> None:
+        override = override_path()
         state = self.override_state()
         try:
             if state not in ("foreign", "absent"):
-                os.remove(OVERRIDE)
+                os.remove(override)
                 logger.info("[gyro] override removed")
                 await self._restart_inputplumber()
         finally:
             self._set_convar(False)
         if state == "foreign":
-            raise RuntimeError(f"{OVERRIDE} is not managed by this plugin; not removing it")
+            raise RuntimeError(f"{override} is not managed by this plugin; not removing it")
 
     def _set_convar(self, present: bool) -> None:
         path = steam_cfg()

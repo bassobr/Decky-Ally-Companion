@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 (2026-10-05)
+
+- ROG Ally X (RC72LA): the gyro fix and the gamepad layout fix are available there too. The gyro
+  fix overrides the Ally X's own InputPlumber config (`50-rog_ally_x.yaml`); deck emulation keeps
+  the device's name with "(Deck Emulation)" appended. Everything else was already enabled and is
+  now tested on the device.
+
 ## 0.3.2 (2026-10-04)
 
 - Power & battery: charge, battery power, fan speed, CPU temperature and thermal profile follow the

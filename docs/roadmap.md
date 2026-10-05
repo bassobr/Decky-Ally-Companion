@@ -33,12 +33,22 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
 10. Microphone noise suppression and headphone EQ (AutoEQ). The EQ chain was checked on a test
     target; with real headphones it is still untested.
 
+## Done (0.4.0, verified on the RC72LA)
+
+11. **ROG Ally X**: interface survey (docs/architecture.md). The gyro fix uses the Ally X's own
+    InputPlumber config, the gamepad layout fix covers it too (same product id). Tested there:
+    `install.sh`, speaker DSP setup, microphone chain, vibration strength, all three gyro modes
+    (override, InputPlumber restart, steam_dev.cfg, revert), gamepad layout (shim patched, UI
+    patch, art), CPU boost, fan pinning, lighting modes, news with BIOS and MCU firmware, the
+    HueSync conflict and the Steam settings entry.
+
 ## Open
 
-- **ROG Ally X (RC72LA)**: run the interface survey (docs/architecture.md), then enable the modules
-  that are limited to the Xbox Ally boards where the hardware allows it. Enhanced Vibration and the
-  gyro override are Xbox Ally only for now; the InputPlumber config of the Ally X is
-  `50-rog_ally_x.yaml`.
+- **Gyro on the ROG Ally X**: the override is applied and reverted correctly; whether Steam then
+  reads the axes right needs a hand on the device (expected, since product id and mount matrix are
+  the Xbox Ally X's).
+- **Enhanced Vibration on the ROG Ally X**: unknown whether its MCU has it (see
+  docs/architecture.md); stays Xbox Ally only until someone feels the difference.
 - **Lighting effects**: breathing, colour cycle and rainbow send the MCU commands without errors,
   but nobody has looked at the rings yet. Static colours and brightness are verified through sysfs.
 

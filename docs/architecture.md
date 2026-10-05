@@ -107,8 +107,8 @@ pure-Python D-Bus libraries need, hence `busctl`. `glob`, `ctypes`, `fcntl`, `zi
 ## Interfaces found on the ROG Xbox Ally X
 
 RC73XA, BIOS 317, SteamOS 3.8.28 (20260922.1), kernel 6.18.50-valve2, InputPlumber 0.78.0,
-steamos-manager 26.4.1, Decky v3.2.10-pre1 (2026-10-04). The ROG Ally X (RC72LA) still needs the
-same survey.
+steamos-manager 26.4.1, Decky v3.2.10-pre1 (2026-10-04). The ROG Ally X differs only where the
+next section says.
 
 | Area | Interface | Notes |
 |---|---|---|
@@ -120,6 +120,18 @@ same survey.
 | Fans | hwmon `asus_custom_fan_curve`: `pwm{1,2}_auto_point{1..8}_{pwm,temp}`, `pwm*_enable` | the profile comes from `throttle_thermal_policy` |
 | Platform | `/sys/firmware/acpi/platform_profile` | Steam switches it |
 | SteamOS channel | `steamos-select-branch -c` (`rel`, `beta`, `preview`, `bc`, `pc`, `main`) | |
+
+## Differences on the ROG Ally X
+
+RC72LA, BIOS 312, same SteamOS, kernel, InputPlumber and steamos-manager, Decky v3.2.9
+(2026-10-05). Everything in the table above is there as well, except:
+
+| Area | ROG Ally X |
+|---|---|
+| steamos-manager | `Manager2.DeviceModel` = (`rog_ally_x`, `RC72LA`) |
+| InputPlumber | config `50-rog_ally_x.yaml`: same IMU mount matrix as the Xbox Ally, capability map `aly1`; the `deck-uhid` target has the same product id 0x12FD ("ROG Ally X Controller"), so Steam tilts the gyro and builds the capability mask the same way; the gyro fix's deck mode gives 0x12F0 |
+| Audio | Realtek ALC294, subsystem 0x10431eb3 (in the DSP device registry) |
+| Controller | no impulse triggers. The MCU echoes `5A D1 1F` (Enhanced Vibration), but it echoes unknown commands just the same, so the echo proves nothing; the toggle stays Xbox Ally only |
 
 ## Files on the device
 
