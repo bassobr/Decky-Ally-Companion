@@ -46,6 +46,11 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
     (measured), so only "keep boost off" is offered; the cap refresh is greyed out.
 13. **Enhanced Vibration on the ROG Ally X** (0.4.3): felt on the device, so the toggle and the
     rumble cap are offered there too.
+14. **Fan fix and SteamOS 3.9.2** (0.4.4): SteamOS 3.9.2 works around the ASUS firmware bug
+    that left the fans at high speed after sleep. From that version on (VERSION_ID in
+    os-release, SteamOS only) the curve pinning stays off and its switch is greyed out; per-game
+    fan curves still work. Checked on the RC73XA under 3.8.28 (pinning unchanged); the 3.9.2
+    branch is covered by tests only.
 
 ## Open
 

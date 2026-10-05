@@ -4,7 +4,7 @@ from __future__ import annotations
 import glob
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from . import dbus, paths
 from .constants import BOARDS, INPUTPLUMBER_BUS, INPUTPLUMBER_MANAGER, STEAMOS_MANAGER_BUS, STEAMOS_MANAGER_PATH
@@ -64,6 +64,15 @@ def os_release() -> Dict[str, str]:
         if m:
             out[m.group(1)] = m.group(2).strip().strip('"')
     return out
+
+
+def steamos_version() -> Optional[Tuple[int, int, int]]:
+    """Installed SteamOS version (VERSION_ID of os-release); None on other distributions."""
+    rel = os_release()
+    if "steamos" not in (rel.get("ID", ""), *rel.get("ID_LIKE", "").split()):
+        return None
+    m = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?", rel.get("VERSION_ID", ""))
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)) if m else None
 
 
 def kernel() -> str:

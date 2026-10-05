@@ -14,7 +14,7 @@ Tested on both devices; see [Tested devices](#tested-devices) for the few differ
 | Audio | Dolby speaker tuning from ASUS' own driver package as a PipeWire filter chain (profiles, voicings, per-game presets, leveler, dialog enhancer, pre-gain, pause on headphones); microphone noise suppression (RNNoise); headphone EQ with AutoEQ profiles |
 | Controller | Grip vibration strength, Enhanced Vibration, rumble on the impulse triggers, gyro axis fix for Steam Input, Steam Input layout without trackpads and phantom rear buttons, reconnect after a hang |
 | Lighting | Joystick rings: static colour, breathing, colour cycle, rainbow, battery level display |
-| Power & battery | CPU boost off (on the Xbox Ally X with the frequency cap kept after charger events), fan curve pinning and custom curves per profile, charge limit and "charge to 100 % once", battery health with daily history, controller power saving in sleep, boot sound |
+| Power & battery | CPU boost off (on the Xbox Ally X with the frequency cap kept after charger events), fan curve pinning against fans stuck at full speed after sleep (up to SteamOS 3.9.1; 3.9.2 fixes this itself) and custom curves per profile, charge limit and "charge to 100 % once", battery health with daily history, controller power saving in sleep, boot sound |
 | Game profiles | Per-game lighting, vibration strength, performance profile, CPU boost and fan curve (per-game sound lives on the Audio page) |
 | News | SteamOS releases of the installed channel with the Ally-related changes, BIOS for the board (EZ Flash download), known issues; new items as a toast |
 | System | Plugin updates, settings backup and restore, diagnostics |

@@ -53,9 +53,14 @@ function Fan({ m }: { m: ModuleStatus }) {
   return (
     <DialogControlsSection>
       <DialogControlsSectionHeader>Fans</DialogControlsSectionHeader>
-      <ModuleToggle m={m} label="Pin the fan curve"
-        description="Stops both fans from getting stuck at full speed after sleep. Keeps each profile's curve."
-        onChange={(on) => void mod.enable("fan", on)} />
+      {d.fixedByOs ? (
+        <ToggleField label="Pin the fan curve" checked={false} disabled description={m.message || "Not needed"}
+          onChange={() => undefined} />
+      ) : (
+        <ModuleToggle m={m} label="Pin the fan curve"
+          description="Stops both fans from getting stuck at full speed after sleep. Keeps each profile's curve."
+          onChange={(on) => void mod.enable("fan", on)} />
+      )}
       {isActive(m) && (
         <>
           <InfoField label="Thermal profile" value={live?.platformProfile ?? d.profile} />
@@ -63,7 +68,7 @@ function Fan({ m }: { m: ModuleStatus }) {
           <InfoField label="CPU temperature" value={live?.cpu.tempC != null ? `${Math.round(live.cpu.tempC)} °C` : null} />
         </>
       )}
-      {isActive(m) && m.enabled && (
+      {isActive(m) && m.enabled && !d.fixedByOs && (
         <>
           <ToggleField label="Edit the curve of this profile" checked={edit} onChange={setEdit} />
           {edit && <FanCurve m={m} />}

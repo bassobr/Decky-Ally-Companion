@@ -8,6 +8,10 @@ and never restores curves after resume, so a watchdog keeps the curve pinned.
 For each thermal profile the module pins the curve that is there: the factory curve of that
 profile (loaded through pwm_enable=3) or whatever another tool wrote while pinned. A custom curve
 set in the UI replaces the remembered curve of the current profile.
+
+SteamOS 3.9.2 works around the firmware bug after sleep itself. From that version on the pinning
+stays off whatever the setting says (the setting is kept for older versions); a game profile's
+curve is still pinned while the game runs.
 """
 from __future__ import annotations
 
@@ -15,7 +19,7 @@ import asyncio
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import sysfs
+from .. import device, sysfs
 from ..log import logger
 from ..module import Module, cancel_task
 
@@ -28,9 +32,16 @@ FAILSAFE_MAX_TEMP_C = 65.0  # above this, >6000 rpm is legitimate load
 WATCHDOG_PERIOD_S = 5.0
 RESUME_SETTLE_S = 3.0
 PWM_MAX = 255
+FIXED_IN_STEAMOS = (3, 9, 2)
+NOT_NEEDED = "Not needed since SteamOS 3.9.2, which fixes the fan speed after sleep itself"
 TEMP_RANGE = (20, 110)
 
 Curve = Dict[str, List[int]]  # {"temps": [...], "pwm1": [...], "pwm2": [...]}
+
+
+def fixed_by_os() -> bool:
+    v = device.steamos_version()
+    return v is not None and v >= FIXED_IN_STEAMOS
 
 
 def valid(curve: Optional[Curve]) -> bool:
@@ -70,8 +81,13 @@ class Fan(Module):
         self._override: Optional[Curve] = None  # game profile curve, pinned while the game runs
 
     @property
+    def pinning(self) -> bool:
+        """The fix itself: the setting, unless SteamOS handles the firmware bug."""
+        return self.enabled and not fixed_by_os()
+
+    @property
     def active(self) -> bool:
-        return self.enabled or self._override is not None
+        return self.pinning or self._override is not None
 
     async def reapply_if_enabled(self, force: bool = False) -> None:
         if not self.active or not self.supported()[0]:
@@ -85,6 +101,8 @@ class Fan(Module):
 
     async def set_enabled(self, on: bool) -> None:
         """The switch on the page; a running game's profile still decides while it runs."""
+        if on and fixed_by_os():
+            raise RuntimeError(NOT_NEEDED)
         self.update_cfg({"enabled": bool(on)})
         self.last_error = ""
         try:
@@ -229,6 +247,11 @@ class Fan(Module):
     def is_applied(self) -> bool:
         return self.enable_state() == (1, 1)
 
+    def refine(self, state: str, message: str, details: Dict[str, Any]) -> Tuple[str, str]:
+        if details.get("fixedByOs") and state in ("applied", "not_applied") and self._override is None:
+            return "info", NOT_NEEDED
+        return state, message
+
     async def apply(self) -> None:
         self._start_watchdog()
         async with self._lock:
@@ -252,9 +275,11 @@ class Fan(Module):
             pass
         return {"profile": profile, "pwmEnable": list(self.enable_state()), "rpm": list(self.rpm()), "temp": self.temp(),
                 "curve": cur, "snapshotProfiles": sorted(self.snapshots()), "lastEvent": self._last_event,
-                "override": self._override is not None}
+                "override": self._override is not None, "fixedByOs": fixed_by_os()}
 
     async def start(self) -> None:
+        if self.enabled and not self.active and self.supported()[0] and self.is_applied():
+            await self.revert()  # pinned under an older SteamOS; the firmware curve takes over again
         await self.reapply_if_enabled()
 
     async def stop(self) -> None:
@@ -282,13 +307,13 @@ class Fan(Module):
             curves = self.snapshots()
             curves.pop(self.profile(), None)
             self.update_cfg({"curves": curves})
-            if self.enabled:
+            if self.pinning:
                 self._last_event = self._pin("factory-restore", force_write=True)
 
     async def set_curve(self, curve: Dict[str, Any]) -> None:
         """Custom curve for the current profile; pinned right away."""
-        if not self.enabled:
-            raise RuntimeError("turn fan curve pinning on first")
+        if not self.pinning:
+            raise RuntimeError(NOT_NEEDED if fixed_by_os() else "turn fan curve pinning on first")
         c = sanitize(curve)
         async with self._lock:
             self._save_snapshot(self.profile(), c)

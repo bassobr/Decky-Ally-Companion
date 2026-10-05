@@ -114,6 +114,31 @@ def test_enhanced_vibration_boards(sysroot):
         assert device.has_impulse_triggers() is (board == "RC73XA")
 
 
+def test_steamos_version(sysroot):
+    from allycompanion import device
+    for text, expected in (('ID=steamos\nVERSION_ID=3.8.28\n', (3, 8, 28)),
+                           ('ID=steamos\nVERSION_ID="3.9.2"\n', (3, 9, 2)),
+                           ('ID=steamos\nVERSION_ID=3.10\n', (3, 10, 0)),
+                           ('ID=bazzite\nID_LIKE="fedora"\nVERSION_ID=44\n', None),
+                           ('ID=steamos\n', None)):
+        _write(sysroot, "etc/os-release", text)
+        assert device.steamos_version() == expected
+
+
+def test_fan_fix_is_off_from_steamos_3_9_2(sysroot):
+    _write(sysroot, "etc/os-release", "ID=steamos\nVERSION_ID=3.9.2\n")
+    m = _module(fan.Fan, {"enabled": True})
+    assert fan.fixed_by_os() and not m.pinning and not m.active
+    with pytest.raises(RuntimeError):
+        asyncio.run(m.set_enabled(True))
+    assert m.refine("applied", "", {"fixedByOs": True}) == ("info", fan.NOT_NEEDED)
+    m._override = {"temps": [0] * 8, "pwm1": [0] * 8, "pwm2": [0] * 8}
+    assert m.active  # a game's own curve is still pinned
+    _write(sysroot, "etc/os-release", "ID=steamos\nVERSION_ID=3.8.28\n")
+    m._override = None
+    assert not fan.fixed_by_os() and m.pinning
+
+
 # ------------------------------------------------------------------ gamepad layout
 
 def test_layout_dropin_repeats_other_preloads(tmp_path, monkeypatch):

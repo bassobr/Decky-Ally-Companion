@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.4 (2026-10-05)
+
+- Fans: SteamOS 3.9.2 fixes the high fan speed after sleep on ASUS devices itself. From that
+  version on the plugin no longer pins the fan curve, and the switch is greyed out with a note;
+  the setting is kept for older versions. A game profile's own fan curve is still pinned while
+  the game runs. The curve editor on the Power page goes with the pinning.
+
 ## 0.4.3 (2026-10-05)
 
 - Enhanced Vibration on the ROG Ally X: its controller has it too (the difference is noticeable),
