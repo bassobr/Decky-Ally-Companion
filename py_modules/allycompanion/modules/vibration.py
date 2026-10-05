@@ -118,7 +118,7 @@ class Vibration(Module):
 
     @property
     def enhanced(self) -> bool:
-        return bool(self.cfg.get("enhanced")) and device.is_xbox_ally()
+        return bool(self.cfg.get("enhanced")) and device.has_enhanced_vibration()
 
     @property
     def mirror_triggers(self) -> bool:
@@ -165,7 +165,7 @@ class Vibration(Module):
         return {
             "left": clamp(self.cfg.get("left", 50)), "right": clamp(self.cfg.get("right", 50)),
             "linked": bool(self.cfg.get("linked", True)), "override": list(self._override) if self._override else None,
-            "enhanced": self.enhanced, "enhancedSupported": device.is_xbox_ally(),
+            "enhanced": self.enhanced, "enhancedSupported": device.has_enhanced_vibration(),
             "mirrorTriggers": self.mirror_triggers, "mirrorSupported": device.has_impulse_triggers(),
             "hw": list(hw) if hw else None,
             "ffFilter": hidbpf.flags_name(self._ff.flags) if self._ff else "off",
@@ -194,14 +194,14 @@ class Vibration(Module):
     async def uninstall(self) -> None:
         await super().uninstall()
         # The flag lives in the controller; without the plugin nothing could turn it off.
-        if self.cfg.get("enhanced") and device.is_xbox_ally():
+        if self.cfg.get("enhanced") and device.has_enhanced_vibration():
             ally_hid.send_xpad(CMD_SET_ENHANCED, b"\x00")
         self._close_ff()
 
     # ------------------------------------------------------------- actions
     async def set_enhanced(self, on: bool) -> None:
-        if not device.is_xbox_ally():
-            raise RuntimeError("Enhanced Vibration needs a ROG Xbox Ally")
+        if not device.has_enhanced_vibration():
+            raise RuntimeError("Enhanced Vibration is not available on this device")
         confirmed = ally_hid.send_xpad(CMD_SET_ENHANCED, bytes([1 if on else 0]))
         self.update_cfg({"enhanced": bool(on)})
         logger.info("[vibration] enhanced %s%s", "on" if on else "off", "" if confirmed else " (echo unconfirmed)")

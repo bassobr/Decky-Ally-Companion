@@ -15,7 +15,7 @@ LED_DIR = "sys/class/leds/ally:rgb:joystick_rings"
 ARMOURY_DIR = "sys/class/firmware-attributes/asus-armoury/attributes"
 
 
-XBOX_ALLY_BOARDS = ("RC73XA", "RC73YA")  # MCU with Enhanced Vibration
+ENHANCED_VIBRATION_BOARDS = ("RC73XA", "RC73YA", "RC72LA")  # MCU knows Enhanced Vibration (5A D1 1F)
 IMPULSE_TRIGGER_BOARDS = ("RC73XA",)  # motors in the triggers
 CAP_HOLDS_BOARDS = ("RC72LA",)  # frequency cap measured to survive charger plug/unplug
 
@@ -32,8 +32,8 @@ def supported() -> bool:
     return board() in BOARDS
 
 
-def is_xbox_ally() -> bool:
-    return board() in XBOX_ALLY_BOARDS
+def has_enhanced_vibration() -> bool:
+    return board() in ENHANCED_VIBRATION_BOARDS
 
 
 def has_impulse_triggers() -> bool:

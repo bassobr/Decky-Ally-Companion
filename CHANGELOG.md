@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3 (2026-10-05)
+
+- Enhanced Vibration on the ROG Ally X: its controller has it too (the difference is noticeable),
+  so the toggle and the rumble cap are available there. Rumble on the impulse triggers stays Xbox
+  Ally X only.
+
 ## 0.4.2 (2026-10-05)
 
 - README: tested devices with firmware and software versions, and what differs between the ROG

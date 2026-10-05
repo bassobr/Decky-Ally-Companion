@@ -37,8 +37,8 @@ environment are taken over; nothing has to be set up again.
 
 All pages work on both. Differences:
 
-- **Enhanced Vibration** and **rumble on the impulse triggers** are Xbox Ally X only. The Ally X
-  has no trigger motors, and whether its controller knows Enhanced Vibration is unknown.
+- **Rumble on the impulse triggers** is Xbox Ally X only; the Ally X has no trigger motors.
+  Enhanced Vibration works on both.
 - **CPU boost**: on the Xbox Ally X the firmware drops the frequency cap on every charger plug and
   the plugin re-sends it. On the Ally X the cap holds (measured), so only "keep boost off" is
   offered there.

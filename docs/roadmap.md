@@ -44,14 +44,14 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
 
 12. **CPU boost on the ROG Ally X** (0.4.1): the frequency cap survives charger events there
     (measured), so only "keep boost off" is offered; the cap refresh is greyed out.
+13. **Enhanced Vibration on the ROG Ally X** (0.4.3): felt on the device, so the toggle and the
+    rumble cap are offered there too.
 
 ## Open
 
 - **Gyro on the ROG Ally X**: the override is applied and reverted correctly; whether Steam then
   reads the axes right needs a hand on the device (expected, since product id and mount matrix are
   the Xbox Ally X's).
-- **Enhanced Vibration on the ROG Ally X**: unknown whether its MCU has it (see
-  docs/architecture.md); stays Xbox Ally only until someone feels the difference.
 - **Lighting effects**: breathing, colour cycle and rainbow send the MCU commands without errors,
   but nobody has looked at the rings yet. Static colours and brightness are verified through sysfs.
 

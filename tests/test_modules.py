@@ -106,6 +106,14 @@ def test_gyro_config_follows_the_board(sysroot):
     assert gyro.config_file() is None and not gyro.Gyro().supported()[0]
 
 
+def test_enhanced_vibration_boards(sysroot):
+    from allycompanion import device
+    for board, expected in (("RC73XA", True), ("RC72LA", True), ("RC71L", False)):
+        _write(sysroot, "sys/class/dmi/id/board_name", board + "\n")
+        assert device.has_enhanced_vibration() is expected
+        assert device.has_impulse_triggers() is (board == "RC73XA")
+
+
 # ------------------------------------------------------------------ gamepad layout
 
 def test_layout_dropin_repeats_other_preloads(tmp_path, monkeypatch):
