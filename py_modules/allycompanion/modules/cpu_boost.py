@@ -6,6 +6,10 @@ On the ROG Xbox Ally X (amd-pstate) every charger plug/unplug makes the firmware
 scaling_max_freq cap on all cores although boost is off. Re-writing scaling_max_freq on every
 policy re-sends the cap. The slip can come back ~10 s after the event, so the cores are watched
 for a while and kicked again when they go over the cap.
+
+On the ROG Ally X (Z1 Extreme) the cap survives charger events (measured with four loaded cores:
+cap, CPPC max_perf and core clocks unchanged across unplug and replug), so there the module only
+keeps boost off; the cap refresh is not offered.
 """
 from __future__ import annotations
 
@@ -14,7 +18,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import sysfs
+from .. import device, sysfs
 from ..log import logger
 from ..module import Module, cancel_task
 
@@ -93,6 +97,11 @@ class CpuBoost(Module):
     def actions(self):
         return {"refresh_now": self.refresh_now}
 
+    @staticmethod
+    def cap_slips() -> bool:
+        """Whether the firmware may drop the cap on charger events (unknown boards: assume so)."""
+        return not device.cap_holds_on_charger()
+
     def supported(self) -> Tuple[bool, str]:
         if not os.path.exists(sysfs.p(BOOST)):
             return False, "cpufreq boost control not available"
@@ -106,7 +115,8 @@ class CpuBoost(Module):
     async def apply(self) -> None:
         sysfs.write_str(sysfs.p(BOOST), "0")
         logger.info("[cpu_boost] boost disabled")
-        await self.kick_cap("apply")
+        if self.cap_slips():
+            await self.kick_cap("apply")
 
     async def revert(self) -> None:
         self._stop_watch()
@@ -120,7 +130,8 @@ class CpuBoost(Module):
         logger.info("[cpu_boost] boost enabled, cap lifted on %d policies", lifted)
 
     def details(self) -> Dict[str, Any]:
-        return {"boost": sysfs.read_str(sysfs.p(BOOST)), "refreshOnCharger": bool(self.cfg.get("refreshOnCharger", True)),
+        return {"boost": sysfs.read_str(sysfs.p(BOOST)), "capSlips": self.cap_slips(),
+                "refreshOnCharger": bool(self.cfg.get("refreshOnCharger", True)),
                 "overCapCores": self.over_cap_count(), "policies": len(policies()), "kicks": self._kicks,
                 "lastKick": self._last_kick, "override": self._override,
                 "watching": self._watch_task is not None and not self._watch_task.done()}
@@ -142,6 +153,8 @@ class CpuBoost(Module):
     async def refresh_now(self) -> None:
         if not self.active:
             raise RuntimeError("CPU boost off is not enabled")
+        if not self.cap_slips():
+            raise RuntimeError("Not needed on this device: the cap survives charger events")
         self.schedule_refresh("manual")
 
     # ------------------------------------------------------------- cap refresh
@@ -178,7 +191,7 @@ class CpuBoost(Module):
             logger.info("[cpu_boost] cap kicked on %d policies (%s)", len(saved), reason)
 
     async def _on_power_event(self, event: Dict[str, str]) -> None:
-        if not self.active or not self.cfg.get("refreshOnCharger", True):
+        if not self.active or not self.cap_slips() or not self.cfg.get("refreshOnCharger", True):
             return
         if event.get("ACTION") != "change" or event.get("POWER_SUPPLY_TYPE") != "Mains":
             return

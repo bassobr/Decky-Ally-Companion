@@ -131,6 +131,7 @@ RC72LA, BIOS 312, same SteamOS, kernel, InputPlumber and steamos-manager, Decky 
 | steamos-manager | `Manager2.DeviceModel` = (`rog_ally_x`, `RC72LA`) |
 | InputPlumber | config `50-rog_ally_x.yaml`: same IMU mount matrix as the Xbox Ally, capability map `aly1`; the `deck-uhid` target has the same product id 0x12FD ("ROG Ally X Controller"), so Steam tilts the gyro and builds the capability mask the same way; the gyro fix's deck mode gives 0x12F0 |
 | Audio | Realtek ALC294, subsystem 0x10431eb3 (in the DSP device registry) |
+| CPU | Z1 Extreme, amd-pstate active; boost off caps at 3301 MHz (on: 5135 MHz). With boost off and four loaded cores, unplugging and replugging the charger left the cap, CPPC max_perf (126) and the core clocks unchanged, so the cap refresh of the CPU boost module is not needed and not offered |
 | Controller | no impulse triggers. The MCU echoes `5A D1 1F` (Enhanced Vibration), but it echoes unknown commands just the same, so the echo proves nothing; the toggle stays Xbox Ally only |
 
 ## Files on the device

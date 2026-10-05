@@ -17,6 +17,7 @@ ARMOURY_DIR = "sys/class/firmware-attributes/asus-armoury/attributes"
 
 XBOX_ALLY_BOARDS = ("RC73XA", "RC73YA")  # MCU with Enhanced Vibration
 IMPULSE_TRIGGER_BOARDS = ("RC73XA",)  # motors in the triggers
+CAP_HOLDS_BOARDS = ("RC72LA",)  # frequency cap measured to survive charger plug/unplug
 
 
 def board() -> str:
@@ -37,6 +38,10 @@ def is_xbox_ally() -> bool:
 
 def has_impulse_triggers() -> bool:
     return board() in IMPULSE_TRIGGER_BOARDS
+
+
+def cap_holds_on_charger() -> bool:
+    return board() in CAP_HOLDS_BOARDS
 
 
 def ally_config_dir() -> Optional[str]:

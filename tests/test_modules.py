@@ -444,6 +444,22 @@ def test_toggles_follow_game_profile_overrides(sysroot):
     assert calls[-1] == "apply"  # this game keeps boost off
 
 
+def test_cpu_boost_skips_the_cap_refresh_where_the_cap_holds(sysroot):
+    _write(sysroot, "sys/devices/system/cpu/cpufreq/boost", "1")
+    _write(sysroot, "sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq", "3301000")
+    _write(sysroot, "sys/class/dmi/id/sys_vendor", "ASUSTeK COMPUTER INC.")
+    _write(sysroot, "sys/class/dmi/id/board_name", "RC72LA\n")
+    m = _module(cpu_boost.CpuBoost, {"enabled": True})
+    asyncio.run(m.apply())
+    assert m._kicks == 0 and m.details()["capSlips"] is False
+    asyncio.run(m._on_power_event({"ACTION": "change", "POWER_SUPPLY_TYPE": "Mains"}))
+    assert m._watch_task is None
+    with pytest.raises(RuntimeError):
+        asyncio.run(m.refresh_now())
+    _write(sysroot, "sys/class/dmi/id/board_name", "RC73XA\n")
+    assert m.cap_slips()
+
+
 def test_restore_keeps_runtime_state(monkeypatch):
     from allycompanion.registry import Registry
     reg = Registry([battery.Battery, profiles.Profiles])

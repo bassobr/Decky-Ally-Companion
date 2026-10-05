@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1 (2026-10-05)
+
+- CPU boost on the ROG Ally X: the frequency cap survives charger events there (measured with
+  loaded cores across unplug and replug), so the cap refresh is greyed out and no longer runs.
+  Keeping boost off still works (base clock 3.3 GHz instead of up to 5.1 GHz).
+
 ## 0.4.0 (2026-10-05)
 
 - ROG Ally X (RC72LA): the gyro fix and the gamepad layout fix are available there too. The gyro

@@ -11,18 +11,23 @@ import type { ModuleStatus } from "../types";
 
 function CpuBoost({ m }: { m: ModuleStatus }) {
   const d = m.details;
+  const slips = d.capSlips !== false; // false: the cap survives charger events on this device
   return (
     <DialogControlsSection>
       <DialogControlsSectionHeader>CPU</DialogControlsSectionHeader>
       <ModuleToggle m={m} label="Keep CPU boost off"
-        description="Cooler and quieter. The firmware drops the frequency cap on every charger plug; this re-sends it."
+        description={slips
+          ? "Cooler and quieter. The firmware drops the frequency cap on every charger plug; this re-sends it."
+          : "Cooler and quieter: the CPU stays at its base clock."}
         onChange={(on) => void mod.enable("cpu_boost", on)} />
       {isActive(m) && m.enabled && (
         <>
-          <ToggleField label="Re-send the cap on charger events" checked={!!d.refreshOnCharger}
+          <ToggleField label="Re-send the cap on charger events" checked={slips && !!d.refreshOnCharger} disabled={!slips}
+            description={slips ? undefined : "Not needed on this device: the cap survives charger events."}
             onChange={(on) => void mod.options("cpu_boost", { refreshOnCharger: on })} />
           <InfoField label="Cores above the cap" value={`${d.overCapCores ?? "–"} of ${d.policies ?? "–"}`} />
-          <ButtonItem layout="below" description={d.lastKick ? `Last: ${d.lastKick} (${d.kicks} total)` : undefined}
+          <ButtonItem layout="below" disabled={!slips}
+            description={d.lastKick ? `Last: ${d.lastKick} (${d.kicks} total)` : undefined}
             onClick={() => void mod.action("cpu_boost", "refresh_now")}>
             Re-send the cap now
           </ButtonItem>

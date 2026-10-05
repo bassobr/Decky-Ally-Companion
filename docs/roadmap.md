@@ -42,6 +42,9 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
     patch, art), CPU boost, fan pinning, lighting modes, news with BIOS and MCU firmware, the
     HueSync conflict and the Steam settings entry.
 
+12. **CPU boost on the ROG Ally X** (0.4.1): the frequency cap survives charger events there
+    (measured), so only "keep boost off" is offered; the cap refresh is greyed out.
+
 ## Open
 
 - **Gyro on the ROG Ally X**: the override is applied and reverted correctly; whether Steam then
