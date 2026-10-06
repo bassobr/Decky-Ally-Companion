@@ -217,6 +217,22 @@ def test_lighting_static_writes_sysfs(sysroot):
     assert open(os.path.join(base, "multi_intensity")).read().startswith(str(0x00FF00))
 
 
+def test_lighting_static_goes_to_the_mcu_when_the_kernel_caps_intensity(sysroot, monkeypatch):
+    base = "sys/class/leds/ally:rgb:joystick_rings"
+    _write(sysroot, f"{base}/brightness", "51")
+    _write(sysroot, f"{base}/multi_intensity", "255 255 255 255")
+    _write(sysroot, f"{base}/multi_max_intensity", "255 255 255 255")
+    sent = []
+    monkeypatch.setattr(lighting.ally_hid, "send_raw", lambda packet: sent.append(bytes(packet)))
+    m = _module(lighting.Lighting, {"enabled": True, "mode": "static", "color": "#80ff00", "brightness": 20})
+    asyncio.run(m.apply())
+    assert open(os.path.join(sysroot, base, "multi_intensity")).read() == "0 0 0 0"  # no blue to restore
+    effect = next(p for p in sent if p[1] == 0xB3)
+    assert effect[3] == 0x00 and tuple(effect[4:7]) == (26, 51, 0)  # static, colour at 20 %
+    _write(sysroot, f"{base}/multi_max_intensity", "16777215 16777215 16777215 16777215")
+    assert lighting.packed_rgb_supported()
+
+
 # ------------------------------------------------------------------ predecessors
 
 def test_conflicts_and_migration(tmp_path, monkeypatch):

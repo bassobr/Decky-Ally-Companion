@@ -176,19 +176,125 @@ def tas_controls(card: int) -> Dict[str, Any]:
     return out
 
 
+LV2_PLUGIN = "http://lv2plug.in/ns/lv2core#Plugin"
+LV2_BINARY = "http://lv2plug.in/ns/lv2core#binary"
+RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+SYSTEM_LV2_DIR = "/usr/lib/lv2"
+
+
+def _ttl_statements(text: str) -> List[List[str]]:
+    """Tokens per statement of a Turtle file: enough for LV2 manifests (prefixes, IRIs, prefixed
+    names, `;` and `,` lists, comments), not a full parser."""
+    statements: List[List[str]] = []
+    tokens: List[str] = []
+    tok = ""
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "<":
+            j = text.find(">", i)
+            j = n - 1 if j < 0 else j
+            tok += text[i:j + 1]
+            i = j + 1
+            continue
+        if c == '"':
+            j = text.find('"', i + 1)
+            j = n - 1 if j < 0 else j
+            tok += text[i:j + 1]
+            i = j + 1
+            continue
+        if c == "#":
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if c in ";,":
+            if tok:
+                tokens.append(tok)
+            tokens.append(c)
+            tok = ""
+        elif c == "." and (i + 1 >= n or text[i + 1].isspace()):
+            if tok:
+                tokens.append(tok)
+            if tokens:
+                statements.append(tokens)
+            tokens, tok = [], ""
+        elif c.isspace():
+            if tok:
+                tokens.append(tok)
+            tok = ""
+        else:
+            tok += c
+        i += 1
+    if tok:
+        tokens.append(tok)
+    if tokens:
+        statements.append(tokens)
+    return statements
+
+
+def manifest_plugins(text: str, bundle: str) -> Dict[str, Optional[str]]:
+    """Plugin URI -> path of its binary (None if the manifest names none) from one manifest.ttl."""
+    prefixes: Dict[str, str] = {}
+
+    def expand(term: str) -> str:
+        if term.startswith("<") and term.endswith(">"):
+            iri = term[1:-1]
+            return iri if "://" in iri or iri.startswith("/") else os.path.join(bundle, iri)
+        if ":" in term:
+            p, local = term.split(":", 1)
+            if p in prefixes:
+                return prefixes[p] + local
+        return term
+
+    out: Dict[str, Optional[str]] = {}
+    for st in _ttl_statements(text):
+        if st[0].lower() in ("@prefix", "prefix") and len(st) >= 3:
+            prefixes[st[1].rstrip(":")] = st[2].strip("<>")
+            continue
+        subject, preds, cur = expand(st[0]), {}, None
+        for t in st[1:]:
+            if t == ";":
+                cur = None
+            elif t == ",":
+                continue
+            elif cur is None:
+                cur = RDF_TYPE if t == "a" else expand(t)
+            else:
+                preds.setdefault(cur, []).append(expand(t))
+        if LV2_PLUGIN in preds.get(RDF_TYPE, []):
+            binary = preds.get(LV2_BINARY, [None])[0]
+            out[subject] = binary
+    return out
+
+
+def installed_lv2_plugins(dirs: List[str]) -> Dict[str, Optional[str]]:
+    """Plugins declared in the manifests of every bundle in `dirs` (SteamOS 3.9 ships lilv without
+    lv2ls, so the manifests are read directly)."""
+    found: Dict[str, Optional[str]] = {}
+    for d in dirs:
+        try:
+            bundles = sorted(os.listdir(d))
+        except OSError:
+            continue
+        for b in bundles:
+            bundle = os.path.join(d, b)
+            try:
+                with open(os.path.join(bundle, "manifest.ttl"), "r", encoding="utf-8", errors="replace") as f:
+                    text = f.read()
+            except OSError:
+                continue
+            for uri, binary in manifest_plugins(text, bundle).items():
+                found.setdefault(uri, binary)
+    return found
+
+
 def lv2_check(lv2_dir: str = paths.LV2_DIR) -> Dict[str, Any]:
-    env_extra = {"LV2_PATH": f"{lv2_dir}:/usr/lib/lv2"}
-    r = run(["lv2ls"], timeout=30, env=_with(env_extra))
-    present = set(r.out.split()) if r.ok else set()
+    plugins = installed_lv2_plugins([lv2_dir, SYSTEM_LV2_DIR])
+    present = {u for u, binary in plugins.items() if binary is None or os.path.isfile(binary)}
     missing = [u for u in LSP_URIS if u not in present]
-    return {"ok": not missing and r.ok, "missing": missing, "lv2ls_rc": r.rc, "lv2_dir": lv2_dir,
+    return {"ok": not missing, "missing": missing, "lv2_dir": lv2_dir,
             "bundle_present": os.path.isdir(os.path.join(lv2_dir, "lsp-plugins.lv2")),
             "calf": CALF_SATURATOR_URI in present}
-
-
-def _with(extra: Dict[str, str]) -> Dict[str, str]:
-    from .util import user_env
-    return user_env(extra)
 
 
 def tools() -> Dict[str, Optional[str]]:

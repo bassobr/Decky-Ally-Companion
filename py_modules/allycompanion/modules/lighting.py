@@ -2,6 +2,10 @@
 
 Static colours go through the kernel's multicolour LED class (`ally:rgb:joystick_rings`, four
 zones, packed 0xRRGGBB intensities, brightness 0..255); the driver restores them after resume.
+Linux 7.2 (SteamOS 3.9) caps every intensity at `multi_max_intensity` (255), which leaves only the
+blue byte of a packed colour. There static colours go to the MCU like the effects, with the
+brightness folded into the colour, and the driver's own copy is set to black so that its restore
+after resume cannot paint the rings blue.
 Animated modes use the MCU's own effects: `5A B3 <zone> <mode> R G B <speed> <dir> 00 R2 G2 B2`,
 then `5A B4` (apply) and `5A B5` (set), with the brightness level 0..3 from `5A BA C5 C4 <level>`.
 That packet layout is the one Handheld Daemon documents for the Ally.
@@ -37,6 +41,21 @@ def parse_color(value: Any, fallback: str = "#ffffff") -> Tuple[int, int, int]:
     assert m
     n = int(m.group(1), 16)
     return (n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF
+
+
+def packed_rgb_supported() -> bool:
+    """Whether multi_intensity can hold packed 0xRRGGBB values (no cap below 24 bits)."""
+    raw = sysfs.read_str(sysfs.p(f"{LED_DIR}/multi_max_intensity"))
+    if not raw:
+        return True  # before Linux 7.2: no cap
+    try:
+        return min(int(x) for x in raw.split()) >= 0xFFFFFF
+    except ValueError:
+        return True
+
+
+def scale(rgb: Tuple[int, int, int], brightness: int) -> Tuple[int, int, int]:
+    return tuple(round(c * max(0, min(100, brightness)) / 100) for c in rgb)  # type: ignore[return-value]
 
 
 def battery_color(capacity: int, charging: bool) -> Tuple[Tuple[int, int, int], str]:
@@ -145,6 +164,12 @@ class Lighting(Module):
 
     # ------------------------------------------------------------- hardware
     def _write_static(self, rgb: Tuple[int, int, int], brightness: int) -> None:
+        if not packed_rgb_supported():
+            path = sysfs.p(f"{LED_DIR}/multi_intensity")
+            if sysfs.read_str(path) != " ".join(["0"] * ZONES):
+                sysfs.write_str(path, " ".join(["0"] * ZONES))
+            self._write_ec("static", scale(rgb, brightness), (0, 0, 0), 100 if brightness > 0 else 0, "medium")
+            return
         if self._shown and not self._shown.startswith(("static", "off")):
             # stop the MCU animation before the driver takes over again
             try:

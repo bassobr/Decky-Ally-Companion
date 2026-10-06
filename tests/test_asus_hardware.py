@@ -64,3 +64,42 @@ def test_pw_dump_helpers():
     assert route["name"] == "analog-output-headphones" and hardware.headphones_active(route)
     assert hardware.filter_node_present(DUMP)
     assert not hardware.filter_node_present(DUMP[:-1])
+
+
+LSP_MANIFEST = """@prefix lv2:        <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs:       <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix plug:       <http://lsp-plug.in/plugins/lv2/> .
+
+plug:autogain_stereo
+	a lv2:Plugin ;
+	lv2:binary <lsp-plugins-lv2.so> ;
+	rdfs:seeAlso <autogain_stereo.ttl> .
+
+# a comment with a # and a <bracket
+plug:filter_stereo a lv2:Plugin, lv2:FilterPlugin ; lv2:binary <lsp-plugins-lv2.so> .
+plug:limiter_stereo a lv2:Plugin ; lv2:binary <missing.so> .
+"""
+
+CALF_MANIFEST = """@prefix lv2: <http://lv2plug.in/ns/lv2core#> .
+<http://calf.sourceforge.net/plugins/Saturator> a lv2:Plugin ; lv2:binary <calf.so> ; lv2:minorVersion 1.0 .
+"""
+
+
+def test_lv2_check_reads_manifests(tmp_path, monkeypatch):
+    from allydsp import hardware
+    lsp = tmp_path / "bundled" / "lsp-plugins.lv2"
+    lsp.mkdir(parents=True)
+    (lsp / "manifest.ttl").write_text(LSP_MANIFEST)
+    (lsp / "lsp-plugins-lv2.so").write_bytes(b"")
+    calf = tmp_path / "system" / "calf.lv2"
+    calf.mkdir(parents=True)
+    (calf / "manifest.ttl").write_text(CALF_MANIFEST)
+    (calf / "calf.so").write_bytes(b"")
+    plugins = hardware.manifest_plugins(LSP_MANIFEST, str(lsp))
+    assert plugins["http://lsp-plug.in/plugins/lv2/filter_stereo"] == str(lsp / "lsp-plugins-lv2.so")
+    monkeypatch.setattr(hardware, "SYSTEM_LV2_DIR", str(tmp_path / "system"))
+    r = hardware.lv2_check(str(tmp_path / "bundled"))
+    assert r["calf"] and r["bundle_present"] and not r["ok"]
+    # limiter's binary is missing; the other two LSP plugins in LSP_URIS are not declared at all
+    assert "http://lsp-plug.in/plugins/lv2/limiter_stereo" in r["missing"]
+    assert "http://lsp-plug.in/plugins/lv2/autogain_stereo" not in r["missing"]

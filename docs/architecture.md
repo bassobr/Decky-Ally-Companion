@@ -134,6 +134,19 @@ RC72LA, BIOS 312, same SteamOS, kernel, InputPlumber and steamos-manager, Decky 
 | CPU | Z1 Extreme, amd-pstate active; boost off caps at 3301 MHz (on: 5135 MHz). With boost off and four loaded cores, unplugging and replugging the charger left the cap, CPPC max_perf (126) and the core clocks unchanged, so the cap refresh of the CPU boost module is not needed and not offered |
 | Controller | no impulse triggers. Enhanced Vibration (`5A D1 1F`) works: the difference is noticeable by hand (the MCU echoes unknown commands too, so its echo proves nothing). The rumble filter attaches to the gamepad interface (`0003:0B05:1B4C.0006`) the same way |
 
+## SteamOS 3.9.2 (beta)
+
+RC73XA on 3.9.2 beta (build 20260925.101, 2026-10-06): kernel 7.2.7-valve1, Python 3.14.6,
+lilv 0.28, InputPlumber 0.78.0, steamos-manager 26.4.1. What changed for the plugin:
+
+| Area | 3.9.2 | Handling |
+|---|---|---|
+| LED class | `multi_max_intensity` (read-only, 255 per zone) caps `multi_intensity`, so the driver's packed 0xRRGGBB values lose everything but blue; the driver restores that after resume | static colours go to the MCU like the effects, brightness folded into the colour; the driver's copy is set to `0 0 0 0` |
+| lilv | no tools (`lv2ls` is gone) | the LV2 check reads the bundles' `manifest.ttl` directly |
+| Python | 3.14 | the converter venv no longer matches and is rebuilt by the setup on plugin start (pinned numpy 2.5.3 and scipy 1.18.1 install) |
+| Fans | SteamOS works around the firmware bug after sleep | curve pinning off (`pwm*_enable` stays 2) |
+| Package rename steamos → holo | `steamos-select-branch` and `holo-select-branch` both exist; steamos-manager keeps its D-Bus names | nothing to do yet |
+
 ## Files on the device
 
 | Path | Content |

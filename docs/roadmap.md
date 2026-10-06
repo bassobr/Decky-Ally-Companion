@@ -51,6 +51,9 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
     os-release, SteamOS only) the curve pinning stays off and its switch is greyed out; per-game
     fan curves still work. Checked on the RC73XA under 3.8.28 (pinning unchanged); the 3.9.2
     branch is covered by tests only.
+15. **SteamOS 3.9.2 beta** (0.4.5, RC73XA): LED colours through the MCU because Linux 7.2 caps
+    the LED class at 255 per zone (rings turned blue after sleep), LV2 check without `lv2ls`,
+    converter venv rebuilt for Python 3.14. Setup, reconversion and the fan gate checked there.
 
 ## Open
 

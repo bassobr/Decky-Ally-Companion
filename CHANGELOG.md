@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.5 (2026-10-06)
+
+SteamOS 3.9.2 (beta):
+- Lighting: Linux 7.2 caps each LED value at 255, which cut the packed ring colours down to their
+  blue part; after sleep the driver painted the rings blue. Static colours now go to the controller
+  directly (like the effects) whenever the kernel has that cap.
+- Speaker DSP: the setup no longer needs `lv2ls`, which SteamOS 3.9 dropped; it reads the LV2
+  manifests itself. With that, the setup rebuilds the converter environment for Python 3.14 on its
+  own, so changing the extras works again.
+
 ## 0.4.4 (2026-10-05)
 
 - Fans: SteamOS 3.9.2 fixes the high fan speed after sleep on ASUS devices itself. From that

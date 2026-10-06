@@ -32,7 +32,7 @@ environment are taken over; nothing has to be set up again.
 
 | Device | Board | APU | Tested with |
 |---|---|---|---|
-| ROG Xbox Ally X | RC73XA | Ryzen AI Z2 Extreme | BIOS 317, SteamOS 3.8.28, Decky Loader 3.2.10-pre1 |
+| ROG Xbox Ally X | RC73XA | Ryzen AI Z2 Extreme | BIOS 317, SteamOS 3.8.28 and 3.9.2 beta, Decky Loader 3.2.10-pre1 |
 | ROG Ally X | RC72LA | Ryzen Z1 Extreme | BIOS 312, SteamOS 3.8.28, Decky Loader 3.2.9 |
 
 All pages work on both. Differences:
