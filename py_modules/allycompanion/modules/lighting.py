@@ -165,12 +165,19 @@ class Lighting(Module):
         await self.reapply_if_enabled()
         if self.ctx and self.ctx.uevent:
             self.ctx.uevent.subscribe("power_supply", self._on_power)
+            self.ctx.uevent.subscribe("leds", self._on_led)
 
     async def stop(self) -> None:
         if self.ctx and self.ctx.uevent:
             self.ctx.uevent.unsubscribe("power_supply", self._on_power)
+            self.ctx.uevent.unsubscribe("leds", self._on_led)
         await self._stop_battery()
         await cancel_task(self._resume_task)
+
+    async def _on_led(self, event: Dict[str, str]) -> None:
+        """The driver re-created the rings (the controller re-enumerated): they show its default."""
+        if event.get("ACTION") == "add" and LED_DIR.rsplit("/", 1)[-1] in event.get("DEVPATH", ""):
+            await self.on_resume(0.0)  # re-applied a moment later, as after sleep
 
     async def on_resume(self, slept_s: float) -> None:
         if self.enabled and (self._resume_task is None or self._resume_task.done()):

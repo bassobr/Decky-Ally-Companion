@@ -609,3 +609,60 @@ def test_fan_revert_brings_back_firmware_auto_and_the_factory_curve(sysroot):
     m = _module(fan.Fan, {"enabled": True})
     asyncio.run(m.revert())
     assert open(os.path.join(d, "pwm1_enable")).read() == "3" and open(os.path.join(d, "pwm2_enable")).read() == "3"
+
+
+class _Late(Module):
+    id = "late"
+    toggle = True
+    defaults = {"enabled": True}
+    present = False
+
+    def __init__(self):
+        super().__init__()
+        self.applied = 0
+
+    def supported(self):
+        return (True, "") if _Late.present else (False, "hid_asus_ally driver not found")
+
+    async def apply(self):
+        self.applied += 1
+
+
+def test_a_module_whose_hardware_appears_later_is_started_then(monkeypatch):
+    monkeypatch.setattr("allycompanion.conflicts.blocked", lambda: {})
+    monkeypatch.setattr("allycompanion.registry.LATE_SETTLE_S", 0)
+    monkeypatch.setattr("allycompanion.registry.LATE_CHECKS_S", ())
+    _Late.present = False
+    reg = Registry([_Late])
+    reg.bind({"modules": reg.defaults()}, Context(lambda: None, _emit))
+
+    async def main():
+        await reg.start()
+        m = reg.get("late")
+        assert m.applied == 0 and "late" not in reg.started  # the controller re-enumerates right now
+        await reg._on_hardware({"ACTION": "remove", "SUBSYSTEM": "leds"})
+        assert reg._late is None
+        _Late.present = True
+        await reg._on_hardware({"ACTION": "add", "SUBSYSTEM": "leds"})
+        await reg._late
+        assert m.applied == 1 and "late" in reg.started
+        assert await reg.start_late() == []  # started once only
+
+    asyncio.run(main())
+
+
+def test_rings_are_set_again_when_the_driver_recreates_them(sysroot, monkeypatch):
+    _write(sysroot, "sys/class/leds/ally:rgb:joystick_rings/brightness", "0")
+    monkeypatch.setattr(lighting, "RESUME_DELAYS_S", (0.0,))
+    m = _module(lighting.Lighting, {"enabled": True, "mode": "static", "color": "#80ff00", "brightness": 20})
+    shows = []
+    monkeypatch.setattr(m, "_show", lambda *a: shows.append(a[0]))
+
+    async def main():
+        await m._on_led({"ACTION": "add", "SUBSYSTEM": "leds",
+                         "DEVPATH": "/devices/.../0003:0B05:1B4C.000B/leds/ally:rgb:joystick_rings"})
+        await m._resume_task
+        await m._on_led({"ACTION": "add", "SUBSYSTEM": "leds", "DEVPATH": "/devices/platform/other/leds/input3::capslock"})
+
+    asyncio.run(main())
+    assert shows == ["static"]

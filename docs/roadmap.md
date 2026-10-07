@@ -61,6 +61,9 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
     converter wheels, reproducible shim, Python 3.11/3.13/3.14 in CI. Unit-tested; the device
     checks are listed below.
 
+17. **Boot on the ROG Ally X** (0.5.1): modules whose hardware appears after the plugin started
+    (the controller re-enumerates about 6.5 s after boot) are started then.
+
 ## Open
 
 - **0.5.0 on the devices**: checked on the RC73XA (SteamOS 3.9.2 beta, 2026-10-07): install through

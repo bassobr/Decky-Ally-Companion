@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 (2026-10-07)
+
+- ROG Ally X: vibration strength and lighting could stay off after a boot. About 6.5 s after
+  boot its controller re-enumerates (the driver removes and re-creates the LED rings and the
+  gamepad attributes), and Decky can start the plugin right in that gap; the modules then counted
+  as unsupported and were not started until the plugin restarted. A module whose hardware is
+  missing at the start is now started as soon as it appears.
+- Lighting: the rings are set again whenever the driver re-creates them.
+
 ## 0.5.0 (2026-10-07)
 
 From a full code review.

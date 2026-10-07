@@ -1,12 +1,21 @@
-"""Builds the modules, binds their settings sections and fans out lifecycle events."""
+"""Builds the modules, binds their settings sections and fans out lifecycle events.
+
+A module whose hardware is not there when the plugin starts is started as soon as it appears. On the
+ROG Ally X the controller re-enumerates about 6.5 s after boot (the driver removes and re-creates
+the LED rings and gamepad attributes), and Decky may start the backend in exactly that gap.
+"""
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Set, Type
 
 from . import conflicts, settings as settings_mod
 from .log import logger
-from .module import Context, Module
+from .module import Context, Module, spawn
+
+LATE_SUBSYSTEMS = ("hid", "leds")  # uevents after which a module may have become supported
+LATE_SETTLE_S = 1.5  # let the driver finish creating its attributes
+LATE_CHECKS_S = (10.0, 30.0, 60.0)  # without uevents too
 
 
 class Registry:
@@ -19,6 +28,8 @@ class Registry:
             self.modules[m.id] = m
         self.ctx: Optional[Context] = None
         self.blocked: Dict[str, str] = {}  # module id -> plugin that drives the same hardware
+        self.started: Set[str] = set()  # modules whose start() ran
+        self._late: Optional[asyncio.Task] = None
 
     def defaults(self) -> Dict[str, Dict[str, Any]]:
         return {mid: dict(m.defaults) for mid, m in self.modules.items()}
@@ -96,10 +107,50 @@ class Registry:
                 await m.prepare(self.blocked.get(mid))
             except Exception:  # noqa: BLE001
                 logger.exception("[%s] prepare failed", mid)
+        self.started = {mid for mid, m in self.modules.items() if mid not in self.blocked and m.supported()[0]}
         await self._each("start")
+        if self.ctx and self.ctx.uevent:
+            for subsystem in LATE_SUBSYSTEMS:
+                self.ctx.uevent.subscribe(subsystem, self._on_hardware)
+        spawn(self._late_checks())
 
     async def stop(self) -> None:
+        if self.ctx and self.ctx.uevent:
+            for subsystem in LATE_SUBSYSTEMS:
+                self.ctx.uevent.unsubscribe(subsystem, self._on_hardware)
         await self._each("stop", only_supported=False, skip_blocked=False)
+
+    # ------------------------------------------------------------- hardware that appears later
+    async def _on_hardware(self, event: Dict[str, str]) -> None:
+        if event.get("ACTION") in ("add", "bind") and (self._late is None or self._late.done()):
+            self._late = spawn(self.start_late(LATE_SETTLE_S))
+
+    async def _late_checks(self) -> None:
+        waited = 0.0
+        for at in LATE_CHECKS_S:
+            await asyncio.sleep(at - waited)
+            waited = at
+            await self.start_late()
+
+    async def start_late(self, delay: float = 0.0) -> List[str]:
+        """Start the modules that were not supported at the start but are now; returns their ids."""
+        if delay:
+            await asyncio.sleep(delay)
+        late = []
+        for mid, m in self.modules.items():
+            if mid in self.started or mid in self.blocked or not m.supported()[0]:
+                continue
+            self.started.add(mid)
+            logger.info("[%s] hardware appeared after the plugin started: starting now", mid)
+            try:
+                await m.prepare(None)
+                await m.start()
+            except Exception as e:  # noqa: BLE001
+                logger.exception("[%s] late start failed", mid)
+                m.last_error = f"start failed: {e}"
+            late.append(mid)
+            await m.notify()
+        return late
 
     async def on_resume(self, slept_s: float) -> None:
         await self._each("on_resume", slept_s, concurrent=True)
@@ -140,6 +191,7 @@ class Registry:
                 await m.stop()
                 if m.toggle and was_enabled and not m.enabled:
                     await m.revert()
+                self.started.add(mid)
                 await m.start()
             except Exception as e:  # noqa: BLE001
                 logger.exception("[%s] restore failed", mid)
