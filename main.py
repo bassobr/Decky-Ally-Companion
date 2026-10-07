@@ -49,13 +49,14 @@ class Plugin:
         spawn(self._startup())
         decky.logger.info("Ally Companion backend started (euid %s, board %s)", os.geteuid(), device.board())
 
-    # _unload and _uninstall do not await long work: if deckyfix could not stop Decky's socket
-    # loop from spinning, the event loop never runs again once the stop begins.
+    # _unload and _uninstall are synchronous inside: Decky stops the event loop as soon as they
+    # return, so nothing scheduled from here would run, and if deckyfix could not stop Decky's
+    # socket loop from spinning, an await would never come back.
     async def _unload(self):
         self.resume.stop()
         if self.update_task and not self.update_task.done():
             self.update_task.cancel()
-        spawn(self.registry.stop())
+        self.registry.unload()
         self.uevent.stop()
         self.jack.stop()
         decky.logger.info("Ally Companion backend unloaded")

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.2 (2026-10-07)
+
+- Lighting on SteamOS 3.9: when the controller came back after the plugin had started (a boot on
+  the ROG Ally X, or any re-enumeration), the rings could stay at the driver's default with an
+  error in the log. The driver creates the rings about 1.6 s before the interface to the
+  controller's MCU, which on Linux 7.2 carries every colour; modules now wait for the driver's
+  bind, which comes once both are there.
+- Hardware that appears while a late start is running gets a check of its own.
+- Unloading the plugin ends running speaker DSP workers; before, they could outlive it and keep
+  writing presets.
+- Quieter logs: no error about a pending task on every unload, and no warning for the vibration
+  re-apply tries that come while the controller driver is still starting.
+
 ## 0.5.1 (2026-10-07)
 
 - ROG Ally X: vibration strength and lighting could stay off after a boot. About 6.5 s after

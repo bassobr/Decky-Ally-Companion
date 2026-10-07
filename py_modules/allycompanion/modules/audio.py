@@ -116,13 +116,18 @@ class Worker:
         if p and p.poll() is None:
             p.terminate()
 
-    def stop_all(self, grace: float = 5.0) -> None:
-        """End every running call and wait for it: no worker may keep writing presets after a stop."""
+    def terminate_all(self) -> List[subprocess.Popen]:
+        """SIGTERM to every running call, without waiting; returns them."""
         with self._lock:
             procs = list(self._procs)
         for p in procs:
             if p.poll() is None:
                 p.terminate()
+        return procs
+
+    def stop_all(self, grace: float = 5.0) -> None:
+        """End every running call and wait for it: no worker may keep writing presets after a stop."""
+        procs = self.terminate_all()
         for p in procs:
             try:
                 p.wait(timeout=grace)
@@ -278,6 +283,9 @@ class Audio(Module):
         await asyncio.to_thread(self.worker.stop_all)  # the running setup ends as "cancelled" by itself
         await cancel_task(self.setup_task)
         await cancel_task(self.convert_task)
+
+    def unload(self) -> None:
+        self.worker.terminate_all()  # child processes would outlive the plugin and keep writing presets
 
     async def on_resume(self, slept_s: float) -> None:
         self.jack.kick()

@@ -1,9 +1,12 @@
 """Root/user boundary, input checks and the fixes from the 0.5.0 review."""
 import ast
 import asyncio
+import gc
 import hashlib
 import json
+import logging
 import os
+import shutil
 import threading
 import time
 
@@ -11,8 +14,9 @@ import pytest
 
 from allycompanion import jacksense, migrate, paths, safefs, settings, updater, userfs, util
 from allycompanion.module import Context, Module
-from allycompanion.modules import MODULES, audio, battery, fan, gyro, headphones, lighting, news, profiles
+from allycompanion.modules import MODULES, audio, battery, fan, gyro, headphones, lighting, news, profiles, vibration
 from allycompanion.registry import Registry
+from allycompanion.resume import ResumeDetector
 from allydsp import asus_fetch, convert, hardware, jackwatch
 from allydsp import paths as dsp_paths
 from allydsp import settings as dsp_settings
@@ -640,10 +644,11 @@ def test_a_module_whose_hardware_appears_later_is_started_then(monkeypatch):
         await reg.start()
         m = reg.get("late")
         assert m.applied == 0 and "late" not in reg.started  # the controller re-enumerates right now
-        await reg._on_hardware({"ACTION": "remove", "SUBSYSTEM": "leds"})
+        await reg._on_hardware({"ACTION": "remove", "SUBSYSTEM": "hid"})
+        await reg._on_hardware({"ACTION": "add", "SUBSYSTEM": "hid"})  # mid-probe: the rings exist already
         assert reg._late is None
         _Late.present = True
-        await reg._on_hardware({"ACTION": "add", "SUBSYSTEM": "leds"})
+        await reg._on_hardware({"ACTION": "bind", "SUBSYSTEM": "hid", "DRIVER": "asus_rog_ally"})
         await reg._late
         assert m.applied == 1 and "late" in reg.started
         assert await reg.start_late() == []  # started once only
@@ -652,17 +657,158 @@ def test_a_module_whose_hardware_appears_later_is_started_then(monkeypatch):
 
 
 def test_rings_are_set_again_when_the_driver_recreates_them(sysroot, monkeypatch):
-    _write(sysroot, "sys/class/leds/ally:rgb:joystick_rings/brightness", "0")
+    usb = "/devices/pci0000:00/0000:00:08.1/0000:64:00.3/usb1/1-2"
+    rings_dev = f"{usb}/1-2:1.2/0003:0B05:1B4C.0017"
+    _write(sysroot, f"sys{rings_dev}/leds/ally:rgb:joystick_rings/brightness", "0")
+    os.makedirs(os.path.join(sysroot, "sys/class/leds"))
+    os.symlink(f"../../{rings_dev.lstrip('/')}/leds/ally:rgb:joystick_rings",
+               os.path.join(sysroot, "sys/class/leds/ally:rgb:joystick_rings"))
     monkeypatch.setattr(lighting, "RESUME_DELAYS_S", (0.0,))
     m = _module(lighting.Lighting, {"enabled": True, "mode": "static", "color": "#80ff00", "brightness": 20})
     shows = []
     monkeypatch.setattr(m, "_show", lambda *a: shows.append(a[0]))
 
     async def main():
-        await m._on_led({"ACTION": "add", "SUBSYSTEM": "leds",
-                         "DEVPATH": "/devices/.../0003:0B05:1B4C.000B/leds/ally:rgb:joystick_rings"})
+        # hid-asus binds the keyboard interfaces first, while the rings' driver is still probing
+        await m._on_bind({"ACTION": "bind", "DRIVER": "asus", "DEVPATH": f"{usb}/1-2:1.0/0003:0B05:1B4C.0015"})
+        await m._on_bind({"ACTION": "add", "DEVPATH": rings_dev})
+        assert m._resume_task is None
+        await m._on_bind({"ACTION": "bind", "DRIVER": "asus_rog_ally", "DEVPATH": rings_dev})
         await m._resume_task
-        await m._on_led({"ACTION": "add", "SUBSYSTEM": "leds", "DEVPATH": "/devices/platform/other/leds/input3::capslock"})
+        await m._on_bind({"ACTION": "bind", "DRIVER": "hid-multitouch", "DEVPATH": "/devices/platform/x/0018:0603:F200.0007"})
+        await m._resume_task
 
     asyncio.run(main())
     assert shows == ["static"]
+
+
+def test_lighting_waits_for_the_config_interface_where_colours_go_to_the_mcu(sysroot):
+    rings = "sys/class/leds/ally:rgb:joystick_rings"
+    _write(sysroot, f"{rings}/brightness", "0")
+    _write(sysroot, f"{rings}/multi_max_intensity", "255 255 255 255")  # Linux 7.2: static via the MCU
+    m = _module(lighting.Lighting, {"enabled": True, "mode": "static", "color": "#80ff00", "brightness": 20})
+    ok, why = m.supported()
+    assert not ok and "config interface" in why  # the driver created the rings and is still probing
+    config = "sys/module/hid_asus_ally/drivers/hid:asus_rog_ally/0003:0B05:1B4C.000B"
+    _write(sysroot, f"{config}/vibration_intensity", "50 50")
+    os.makedirs(os.path.join(sysroot, config, "hidraw", "hidraw5"))
+    assert m.supported() == (True, "")
+    # before Linux 7.2 the LED class alone shows static colours
+    _write(sysroot, f"{rings}/multi_max_intensity", "16777215 16777215 16777215 16777215")
+    shutil.rmtree(os.path.join(sysroot, "sys/module"))
+    assert m.supported() == (True, "")
+
+
+class _Probing(Module):
+    """Its driver is still probing during the first check and binds while another module starts."""
+    id = "probing"
+    toggle = True
+    defaults = {"enabled": True}
+    ready = False
+
+    def supported(self):
+        return (True, "") if _Probing.ready else (False, "controller config interface not found")
+
+
+class _Rings(Module):
+    id = "rings"
+    toggle = True
+    defaults = {"enabled": True}
+    present = False
+    reg = None
+
+    def supported(self):
+        return (True, "") if _Rings.present else (False, "joystick LED rings not found")
+
+    async def apply(self):
+        _Probing.ready = True
+        await _Rings.reg._on_hardware({"ACTION": "bind", "SUBSYSTEM": "hid", "DRIVER": "asus_rog_ally"})
+
+
+def test_a_hardware_event_during_a_late_start_gets_a_check_of_its_own(monkeypatch):
+    monkeypatch.setattr("allycompanion.conflicts.blocked", lambda: {})
+    monkeypatch.setattr("allycompanion.registry.LATE_SETTLE_S", 0)
+    monkeypatch.setattr("allycompanion.registry.LATE_CHECKS_S", ())
+    _Probing.ready, _Rings.present = False, False
+    reg = Registry([_Probing, _Rings])  # checked in this order
+    _Rings.reg = reg
+    reg.bind({"modules": reg.defaults()}, Context(lambda: None, _emit))
+
+    async def main():
+        await reg.start()
+        _Rings.present = True
+        await reg._on_hardware({"ACTION": "bind", "SUBSYSTEM": "hid", "DRIVER": "asus_rog_ally"})
+        await reg._late
+
+    asyncio.run(main())
+    assert reg.started == {"probing", "rings"}
+
+
+def test_resume_detector_leaves_nothing_pending_when_decky_closes_the_loop():
+    loop = asyncio.new_event_loop()
+    reported = []
+    loop.set_exception_handler(lambda _loop, context: reported.append(context.get("message", "")))
+
+    async def on_resume(slept):
+        pass
+
+    det = ResumeDetector(on_resume, delta=lambda: 0.0)
+
+    async def start():
+        det.start()
+        await asyncio.sleep(0)
+
+    async def shutdown():  # Decky: the plugin's _unload, then sys.exit() in the same step
+        det.stop()
+        raise SystemExit(0)
+
+    loop.run_until_complete(start())
+    task = loop.create_task(shutdown())
+    with pytest.raises(SystemExit):
+        loop.run_forever()
+    loop.close()
+    assert isinstance(task.exception(), SystemExit)
+    del task
+    gc.collect()
+    assert not [m for m in reported if "destroyed" in m]
+
+
+def test_unload_ends_the_dsp_workers_without_waiting():
+    import signal
+    import subprocess
+    import sys
+    reg = Registry(MODULES)
+    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    reg.get("audio").worker._procs.add(p)
+    started = time.monotonic()
+    reg.unload()  # synchronous: Decky closes the loop right after _unload
+    assert time.monotonic() - started < 1 and p.wait(timeout=5) == -signal.SIGTERM
+
+
+def test_vibration_rebind_warns_only_when_every_try_failed(monkeypatch, caplog):
+    monkeypatch.setattr(vibration, "REBIND_DELAYS_S", (0.0, 0.0, 0.0))
+    m = _module(vibration.Vibration, {"enabled": True, "left": 50, "right": 50})
+    monkeypatch.setattr(m, "_sync_ff_filter", lambda force=False: None)
+    tries = []
+
+    def probing(left, right):
+        tries.append((left, right))
+        if len(tries) == 1:
+            raise OSError("vibration_intensity attribute not found")
+
+    monkeypatch.setattr(m, "_write_hw", probing)
+    with caplog.at_level(logging.INFO, logger="allycompanion"):
+        asyncio.run(m._rebind("hid add"))
+    assert len(tries) == 3 and m.last_error == ""
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert "re-applied after hid add (2/3 sends ok)" in caplog.text
+
+    def gone(left, right):
+        raise OSError("vibration_intensity attribute not found")
+
+    monkeypatch.setattr(m, "_write_hw", gone)
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="allycompanion"):
+        asyncio.run(m._rebind("hid add"))
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1 and "attribute not found" in m.last_error

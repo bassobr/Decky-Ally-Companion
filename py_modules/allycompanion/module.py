@@ -127,7 +127,11 @@ class Module:
         await self.reapply_if_enabled()
 
     async def stop(self) -> None:
-        """Plugin unload: cancel background work; changes stay applied."""
+        """Before a backup restore starts the module again: cancel background work; changes stay applied."""
+
+    def unload(self) -> None:
+        """Plugin unload. Synchronous: Decky stops the event loop right after, so tasks and threads
+        simply end with the process; only what would outlive it (child processes) needs this."""
 
     async def on_resume(self, slept_s: float) -> None:
         """After suspend; the controller MCU loses most of its settings there."""

@@ -61,8 +61,11 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
     converter wheels, reproducible shim, Python 3.11/3.13/3.14 in CI. Unit-tested; the device
     checks are listed below.
 
-17. **Boot on the ROG Ally X** (0.5.1): modules whose hardware appears after the plugin started
-    (the controller re-enumerates about 6.5 s after boot) are started then.
+17. **Boot on the ROG Ally X** (0.5.1, 0.5.2): modules whose hardware appears after the plugin
+    started (the controller re-enumerates about 6.5 s after boot) are started on the driver's bind.
+    Checked as root on both devices: controller USB device deauthorized, Decky restarted, device
+    authorized again; and a re-enumeration while the plugin runs (rings and vibration set again,
+    MCU packets traced with a kprobe on the RC73XA).
 
 ## Open
 
@@ -70,8 +73,10 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
   Decky with a local zip, all module states unchanged, jack switch found (`event13`; backend CPU
   1.67 % -> 0.09 % of a core), rebuilt shim patching the real steamclient.so, floored game fan curve
   in the EC and the factory curve back afterwards, backup restore and the cancel button during a
-  running setup, hash-pinned wheels with Python 3.14.6, all pages. Still open: a headphone plug
-  by hand, a sleep/wake cycle, the RC72LA, an update from a signed GitHub release.
+  running setup, hash-pinned wheels with Python 3.14.6, all pages. The RC72LA took 0.5.0 from
+  GitHub in-app, the RC73XA 0.5.1 through the System page (zip verified in the backend, handed to
+  Decky from `/run`). A sleep/wake cycle (RTC wake) on the RC73XA with 0.5.2: resume detected,
+  modules applied again. Still open: a headphone plug by hand.
 
 - **Gyro on the ROG Ally X**: the override is applied and reverted correctly; whether Steam then
   reads the axes right needs a hand on the device (expected, since product id and mount matrix are

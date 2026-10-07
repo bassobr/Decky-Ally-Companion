@@ -3,6 +3,8 @@
 A module whose hardware is not there when the plugin starts is started as soon as it appears. On the
 ROG Ally X the controller re-enumerates about 6.5 s after boot (the driver removes and re-creates
 the LED rings and gamepad attributes), and Decky may start the backend in exactly that gap.
+The cue is the driver's bind: hid_asus_ally creates the rings early in its probe and the interface
+to the controller's MCU about 1.6 s later, at the end.
 """
 from __future__ import annotations
 
@@ -13,8 +15,8 @@ from . import conflicts, settings as settings_mod
 from .log import logger
 from .module import Context, Module, spawn
 
-LATE_SUBSYSTEMS = ("hid", "leds")  # uevents after which a module may have become supported
-LATE_SETTLE_S = 1.5  # let the driver finish creating its attributes
+LATE_SUBSYSTEMS = ("hid",)  # bind uevents after which a module may have become supported
+LATE_SETTLE_S = 1.5  # the controller's other interfaces bind within a moment
 LATE_CHECKS_S = (10.0, 30.0, 60.0)  # without uevents too
 
 
@@ -30,6 +32,7 @@ class Registry:
         self.blocked: Dict[str, str] = {}  # module id -> plugin that drives the same hardware
         self.started: Set[str] = set()  # modules whose start() ran
         self._late: Optional[asyncio.Task] = None
+        self._late_again = False
 
     def defaults(self) -> Dict[str, Dict[str, Any]]:
         return {mid: dict(m.defaults) for mid, m in self.modules.items()}
@@ -114,16 +117,25 @@ class Registry:
                 self.ctx.uevent.subscribe(subsystem, self._on_hardware)
         spawn(self._late_checks())
 
-    async def stop(self) -> None:
-        if self.ctx and self.ctx.uevent:
-            for subsystem in LATE_SUBSYSTEMS:
-                self.ctx.uevent.unsubscribe(subsystem, self._on_hardware)
-        await self._each("stop", only_supported=False, skip_blocked=False)
+    def unload(self) -> None:
+        for mid, m in self.modules.items():
+            try:
+                m.unload()
+            except Exception:  # noqa: BLE001
+                logger.exception("[%s] unload failed", mid)
 
     # ------------------------------------------------------------- hardware that appears later
     async def _on_hardware(self, event: Dict[str, str]) -> None:
-        if event.get("ACTION") in ("add", "bind") and (self._late is None or self._late.done()):
-            self._late = spawn(self.start_late(LATE_SETTLE_S))
+        if event.get("ACTION") != "bind":
+            return
+        self._late_again = True
+        if self._late is None or self._late.done():
+            self._late = spawn(self._late_after_events())
+
+    async def _late_after_events(self) -> None:
+        while self._late_again:  # an event during a check gets a check of its own (the driver's bind)
+            self._late_again = False
+            await self.start_late(LATE_SETTLE_S)
 
     async def _late_checks(self) -> None:
         waited = 0.0

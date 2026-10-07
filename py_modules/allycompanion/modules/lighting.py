@@ -134,6 +134,9 @@ class Lighting(Module):
     def supported(self) -> Tuple[bool, str]:
         if not os.path.isdir(sysfs.p(LED_DIR)):
             return False, "joystick LED rings not found (hid_asus_ally)"
+        if not packed_rgb_supported() and ally_hid.hidraw_node() is None:
+            # Linux 7.2: every colour goes to the MCU, whose interface the driver adds after the rings
+            return False, "controller config interface not found (hid_asus_ally)"
         return True, ""
 
     def is_applied(self) -> bool:
@@ -165,18 +168,23 @@ class Lighting(Module):
         await self.reapply_if_enabled()
         if self.ctx and self.ctx.uevent:
             self.ctx.uevent.subscribe("power_supply", self._on_power)
-            self.ctx.uevent.subscribe("leds", self._on_led)
+            self.ctx.uevent.subscribe("hid", self._on_bind)
 
     async def stop(self) -> None:
         if self.ctx and self.ctx.uevent:
             self.ctx.uevent.unsubscribe("power_supply", self._on_power)
-            self.ctx.uevent.unsubscribe("leds", self._on_led)
+            self.ctx.uevent.unsubscribe("hid", self._on_bind)
         await self._stop_battery()
         await cancel_task(self._resume_task)
 
-    async def _on_led(self, event: Dict[str, str]) -> None:
-        """The driver re-created the rings (the controller re-enumerated): they show its default."""
-        if event.get("ACTION") == "add" and LED_DIR.rsplit("/", 1)[-1] in event.get("DEVPATH", ""):
+    async def _on_bind(self, event: Dict[str, str]) -> None:
+        """The controller re-enumerated: the driver re-created the rings with its default colour.
+        The bind of the rings' own device ends the probe; the MCU interface is there by then."""
+        devpath = event.get("DEVPATH", "")
+        if event.get("ACTION") != "bind" or not devpath.startswith("/devices/"):
+            return
+        rings = os.path.realpath(sysfs.p(LED_DIR))
+        if rings.startswith(os.path.realpath(sysfs.p("sys" + devpath)) + "/"):
             await self.on_resume(0.0)  # re-applied a moment later, as after sleep
 
     async def on_resume(self, slept_s: float) -> None:

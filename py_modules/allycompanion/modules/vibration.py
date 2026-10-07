@@ -335,6 +335,7 @@ class Vibration(Module):
 
     async def _rebind(self, reason: str) -> None:
         sent = failed = 0
+        error = ""
         for delay in REBIND_DELAYS_S:
             await asyncio.sleep(delay)
             if not self._wants_controller():
@@ -348,12 +349,13 @@ class Vibration(Module):
                 if self.enhanced:
                     ally_hid.send_xpad(CMD_SET_ENHANCED, b"\x01")
                 sent += 1
-            except OSError as e:
+            except OSError as e:  # the first tries often come while the driver is still probing
                 failed += 1
-                logger.warning("[vibration] re-apply after %s failed: %s", reason, e)
+                error = str(e)
         if sent:
             self.last_error = ""
             logger.info("[vibration] re-applied after %s (%d/%d sends ok)", reason, sent, sent + failed)
         elif self.enabled or self.enhanced:
-            self.last_error = f"could not re-apply vibration settings after {reason}"
+            self.last_error = f"could not re-apply vibration settings after {reason}: {error}"
+            logger.warning("[vibration] %s", self.last_error)
         await self.notify()
