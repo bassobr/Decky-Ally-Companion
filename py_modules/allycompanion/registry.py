@@ -29,7 +29,11 @@ class Registry:
         ctx.modules = self.modules
         ctx.blocked = self.blocked
         for mid, m in self.modules.items():
-            m.bind(settings["modules"][mid], ctx)
+            # typed against the defaults, then checked by the module (imports from predecessors too)
+            section = settings_mod.merge(dict(m.defaults), settings["modules"].get(mid))
+            m.normalize(section)
+            settings["modules"][mid] = section
+            m.bind(section, ctx)
 
     def get(self, mid: str) -> Module:
         if mid not in self.modules:
@@ -37,8 +41,12 @@ class Registry:
         return self.modules[mid]
 
     def refresh_blocked(self) -> None:
+        self.set_blocked(conflicts.blocked())
+
+    def set_blocked(self, blocked: Dict[str, str]) -> None:
+        """On the event loop only: modules read this dict there."""
         self.blocked.clear()  # the context holds the same dict
-        self.blocked.update(conflicts.blocked())
+        self.blocked.update(blocked)
 
     def check_not_blocked(self, mid: str) -> None:
         if mid in self.blocked:
@@ -59,19 +67,25 @@ class Registry:
                             "enabled": m.enabled, "state": "error", "message": f"status failed: {e}", "details": {}}
         return out
 
-    async def _each(self, hook: str, *args: Any, only_supported: bool = True, skip_blocked: bool = True) -> None:
-        for mid, m in self.modules.items():
-            if only_supported and not m.supported()[0]:
-                continue
-            if skip_blocked and mid in self.blocked:
-                continue
-            try:
-                await getattr(m, hook)(*args)
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:  # noqa: BLE001
-                logger.exception("[%s] %s failed", mid, hook)
-                m.last_error = f"{hook} failed: {e}"
+    @staticmethod
+    async def _hook(mid: str, m: Module, hook: str, *args: Any) -> None:
+        try:
+            await getattr(m, hook)(*args)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[%s] %s failed", mid, hook)
+            m.last_error = f"{hook} failed: {e}"
+
+    async def _each(self, hook: str, *args: Any, only_supported: bool = True, skip_blocked: bool = True,
+                    concurrent: bool = False) -> None:
+        targets = [(mid, m) for mid, m in self.modules.items()
+                   if not (only_supported and not m.supported()[0]) and not (skip_blocked and mid in self.blocked)]
+        if concurrent:  # one module waiting (the fan settles for seconds) must not hold up the others
+            await asyncio.gather(*(self._hook(mid, m, hook, *args) for mid, m in targets))
+            return
+        for mid, m in targets:
+            await self._hook(mid, m, hook, *args)
 
     async def start(self) -> None:
         self.refresh_blocked()
@@ -88,14 +102,14 @@ class Registry:
         await self._each("stop", only_supported=False, skip_blocked=False)
 
     async def on_resume(self, slept_s: float) -> None:
-        await self._each("on_resume", slept_s)
+        await self._each("on_resume", slept_s, concurrent=True)
         for m in self.modules.values():
             await m.notify()
 
     async def on_app_changed(self, app_id: Optional[str]) -> None:
         if self.ctx:
             self.ctx.running_app = app_id
-        await self._each("on_app_changed", app_id)
+        await self._each("on_app_changed", app_id, concurrent=True)
 
     async def uninstall(self) -> None:
         # Not filtered by supported(): when the cleanup runs, the plugin's own files (shim, LV2
@@ -113,6 +127,7 @@ class Registry:
                 continue
             was_enabled = m.enabled
             new = settings_mod.merge(dict(m.defaults), data)
+            m.normalize(new)  # a backup is a file the user can edit
             for k in (keep or {}).get(mid, ()):
                 if k in m.cfg:
                     new[k] = m.cfg[k]

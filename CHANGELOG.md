@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.5.0 (2026-10-07)
+
+From a full code review.
+
+Safety limits (they hold for the UI, game profiles, settings files, backups and any local process
+calling the plugin through Decky):
+- Fans: from 85 °C on, no curve goes below the factory curve of the active thermal profile; below
+  that a curve may still be as quiet as wanted. The curve editor says so.
+- Headphone EQ: only profiles from AutoEQ's index are fetched; filter values are bounded and the
+  preamp is lowered so that a profile can attenuate but never boost (no more than 0 dB anywhere).
+- Charge limit: never below steamos-manager's suggested minimum.
+
+Security:
+- The root backend no longer reads files below the home that the user could not read: links,
+  FIFOs and root-only files planted there are read with the user's permissions (they could copy a
+  root-only file into steam_dev.cfg through the gyro fix, or into the audio settings).
+- settings.json is written into the real settings directory even if a link replaces it; the data
+  directory is deleted as the user on uninstall.
+- Every value from settings.json, a backup or a predecessor's settings is checked before use;
+  broken values fall back to their defaults instead of stopping the plugin.
+- Updates: the zip is checked against the signed hash before Decky's installer gets it (Decky
+  removes the installed version before its own check).
+- Downloads: ASUS packages and BIOS files without a published SHA-256 are not downloaded;
+  numpy/scipy for the converter are hash-pinned wheels without an unpinned fallback.
+- install.sh runs its verifier isolated from the directory it was started in.
+
+Fixes:
+- Speaker DSP: restoring a backup during setup or a conversion no longer leaves the page stuck at
+  "Setting up"; the setup state has its own file, so the worker and the plugin cannot overwrite
+  each other's changes.
+- Speaker DSP: cancelling the setup really stops it. The conversion used to carry on in the
+  background (and could run next to a new setup); now the worker and its download end at once.
+- News: a check that finds no network (right after waking up, for instance) is repeated after 30
+  minutes instead of six hours, a source that does not answer keeps its last items, and the check
+  also runs while the device stays awake.
+- Fans: switching the pinning off (or a game's curve ending) also loads the factory curve back into
+  the fan curve registers.
+- After sleep all modules re-apply at once: the rings no longer wait for the fan to settle.
+- Lighting: changes arriving together (resume, game profile, slider) no longer mix their packets.
+- A slider moved right before the Quick Access panel closes keeps its value.
+- Steam is only restarted when the change that needs it succeeded.
+- Removing a game's settings or sound preset asks first.
+- A slow ASUS download no longer stalls the setup.
+
+Efficiency:
+- The headphone jack is followed through the codec's switch events instead of reading PipeWire's
+  graph every three seconds (that alone used 1.6 % of a CPU core all the time); the headphone EQ
+  likewise. A status refresh starts far fewer processes.
+
+Maintenance:
+- CI runs the backend tests on Python 3.11, 3.13 and 3.14 and rebuilds the Steam client shim in a
+  pinned container to check the committed binary. The shim only touches read-only data pages.
+- Typed module details in the frontend; Steam's loaded modules are searched before any factory is
+  run.
+
 ## 0.4.5 (2026-10-06)
 
 SteamOS 3.9.2 (beta):

@@ -13,6 +13,7 @@ channel. PipeWire's own example names a different build (librnnoise_ladspa, nois
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 from typing import Any, Dict, Optional, Tuple
 
@@ -25,6 +26,14 @@ from ..module import Module
 LADSPA = "/usr/lib/ladspa/rnnoise_ladspa.so"
 NODE = "ally_companion_mic"
 PRIORITY = 2500  # Valve's loopback source of the internal microphone has 2010
+VAD_MAX = 95.0
+STATUS_AGE_S = 2.0  # one systemctl/pw-dump answer serves a whole status round
+
+
+def clean_vad(v: Any, default: float = 50.0) -> float:
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+        return default
+    return max(0.0, min(VAD_MAX, float(v)))
 COMMENT = "Ally Companion microphone noise suppression"
 
 
@@ -87,14 +96,17 @@ class Mic(Module):
             return False, "librnnoise_ladspa is not installed"
         return True, ""
 
+    def normalize(self, cfg: Dict[str, Any]) -> None:
+        cfg["vad"] = clean_vad(cfg.get("vad"))
+
     def set_options(self, opts: Dict[str, Any]) -> bool:
         if "vad" in opts:
-            self.update_cfg({"vad": max(0.0, min(95.0, float(opts["vad"])))})
+            self.update_cfg({"vad": clean_vad(opts["vad"], float(self.cfg.get("vad", 50.0)))})
             return True
         return False
 
     def is_applied(self) -> bool:
-        return self.chain.is_active()
+        return self.chain.is_active(STATUS_AGE_S)
 
     async def apply(self) -> None:
         sources = await asyncio.to_thread(chains.nodes, "Audio/Source")
@@ -102,8 +114,8 @@ class Mic(Module):
         if not target:
             raise RuntimeError("internal microphone not found in PipeWire")
         self._target = target
-        changed = await asyncio.to_thread(self.chain.write, config(target, float(self.cfg.get("vad", 50.0))))
-        await asyncio.to_thread(self.chain.start, changed and self.chain.is_active())
+        changed = await asyncio.to_thread(self.chain.write, config(target, clean_vad(self.cfg.get("vad"))))
+        await asyncio.to_thread(lambda: self.chain.start(changed and self.chain.is_active()))
         logger.info("[mic] noise suppression on %s", target)
 
     async def revert(self) -> None:
@@ -113,5 +125,5 @@ class Mic(Module):
         await asyncio.to_thread(self.chain.remove)
 
     def details(self) -> Dict[str, Any]:
-        return {"vad": self.cfg.get("vad", 50.0), "target": self._target, "active": self.chain.is_active(),
-                "verified": chains.node_present(f"effect_output.{NODE}")}
+        return {"vad": self.cfg.get("vad", 50.0), "target": self._target, "active": self.chain.is_active(STATUS_AGE_S),
+                "verified": chains.node_present(f"effect_output.{NODE}", max_age=STATUS_AGE_S)}

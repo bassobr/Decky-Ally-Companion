@@ -29,7 +29,9 @@ mkdir -p "$TMP/verify/allycompanion"
 for f in __init__.py ed25519.py minisign.py log.py; do curl -fsSL -o "$TMP/verify/allycompanion/$f" "$RAW/$f"; done
 printf '%s\n' "$PUBKEY" > "$TMP/minisign.pub"
 echo "Checking the signature..."
-if PYTHONPATH="$TMP/verify" python3 -m allycompanion.minisign verify "$TMP/SHA256SUMS" "$TMP/SHA256SUMS.minisig" "$TMP/minisign.pub"; then
+# Run from the verifier's own directory with -E -s: "python -m" puts the current directory first on the
+# import path, so an allycompanion/ planted where this script was started must not run as root.
+if (cd "$TMP/verify" && python3 -E -s -m allycompanion.minisign verify "$TMP/SHA256SUMS" "$TMP/SHA256SUMS.minisig" "$TMP/minisign.pub"); then
   echo "Signature OK."
 else
   echo "Release signature INVALID, aborting." >&2; exit 1

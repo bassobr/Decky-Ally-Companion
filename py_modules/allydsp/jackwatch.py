@@ -1,11 +1,19 @@
-"""Pause the chain while headphones use the shared analog sink."""
+"""Pause the chain while headphones use the shared analog sink.
+
+With jack events (the backend's jacksense calls kick()) the route is checked right after each
+plug or unplug and otherwise only once a minute; without them it is polled every few seconds.
+"""
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Callable, Dict, Optional
 
 from . import dsp_runtime, hardware
 from .log import logger
+
+IDLE_S = 60.0  # safety re-check while jack events drive the checks
+BURST_S, BURST_STEP_S = 3.0, 0.5  # PipeWire moves the route a moment after the jack event
 
 
 class JackWatcher:
@@ -13,7 +21,10 @@ class JackWatcher:
         self.interval = interval
         self.on_change = on_change
         self.headphones: Optional[bool] = None
+        self.event_driven = False
         self._task: Optional[asyncio.Task] = None
+        self._wake: Optional[asyncio.Event] = None
+        self._burst_until = 0.0
 
     @property
     def paused(self) -> bool:
@@ -25,12 +36,23 @@ class JackWatcher:
 
     def start(self, should_run: Callable[[], bool]) -> None:
         if self._task is None or self._task.done():
-            self._task = asyncio.get_event_loop().create_task(self.run(should_run))
+            self._task = asyncio.get_running_loop().create_task(self.run(should_run))
 
     def cancel(self) -> None:
         if self._task:
             self._task.cancel()
             self._task = None
+
+    def kick(self) -> None:
+        """A jack event or a resume: check now and a few times right after."""
+        self._burst_until = time.monotonic() + BURST_S
+        if self._wake is not None:
+            self._wake.set()
+
+    def next_delay(self) -> float:
+        if time.monotonic() < self._burst_until:
+            return BURST_STEP_S
+        return IDLE_S if self.event_driven else self.interval
 
     async def poll(self, should_run: Callable[[], bool]) -> None:
         dump = await asyncio.to_thread(hardware.pw_dump)
@@ -54,6 +76,7 @@ class JackWatcher:
                 await res
 
     async def run(self, should_run: Callable[[], bool]) -> None:
+        self._wake = asyncio.Event()
         while True:
             try:
                 await self.poll(should_run)
@@ -61,4 +84,8 @@ class JackWatcher:
                 raise
             except Exception as e:
                 logger.warning("jack watcher: %s", e)
-            await asyncio.sleep(self.interval)
+            self._wake.clear()
+            try:
+                await asyncio.wait_for(self._wake.wait(), self.next_delay())
+            except asyncio.TimeoutError:
+                pass

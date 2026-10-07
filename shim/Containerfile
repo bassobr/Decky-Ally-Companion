@@ -1,2 +1,10 @@
-FROM docker.io/library/debian:trixie-slim
-RUN apt-get update && apt-get install -y --no-install-recommends gcc-multilib && rm -rf /var/lib/apt/lists/*
+# Pinned for a reproducible shim: the base image by digest, the packages from one snapshot.debian.org
+# date (apt checks the archive signatures; HTTP is fine). CI rebuilds bin/liballycaps*.so with this
+# and fails when the result differs from the commit. Update both pins together.
+FROM docker.io/library/debian:trixie-slim@sha256:918311b7b6c4c6f68b232ba516584925f6c78ad82b6fd534b98979df6438e483
+ARG SNAPSHOT=20261007T000000Z
+RUN rm -f /etc/apt/sources.list.d/debian.sources \
+ && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${SNAPSHOT} trixie main" > /etc/apt/sources.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends gcc-multilib \
+ && rm -rf /var/lib/apt/lists/*

@@ -22,7 +22,7 @@ import os
 import shlex
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import device, paths, steam, userfs
+from .. import device, paths, safefs, steam, userfs
 from ..log import logger
 from ..module import Module
 
@@ -74,8 +74,14 @@ def dropin_dirs() -> Tuple[str, ...]:
     )
 
 
-def read(path: str) -> Optional[bytes]:
+SHIM_LOG_TAIL = 256 << 10
+
+
+def read(path: str, tail: bool = False) -> Optional[bytes]:
+    """Unit files and our copies; below the home as the user would read them (no planted links)."""
     try:
+        if safefs.below_home(path) is not None:
+            return safefs.read_bytes(path, SHIM_LOG_TAIL if tail else safefs.MAX_READ, tail=tail)
         with open(path, "rb") as f:
             return f.read()
     except OSError:
@@ -165,7 +171,7 @@ class GamepadLayout(Module):
         if pid is None or not steam.client_has_mapped(pid, "/" + LIB_NAME):
             return False, None
         patched: Optional[bool] = None
-        text = read(shim_log())
+        text = read(shim_log(), tail=True)  # the shim appends one line per Steam start
         if text is not None:
             tag = f"[{pid}]"
             for line in text.decode(errors="replace").splitlines():

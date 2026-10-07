@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 
 import pytest
@@ -7,6 +8,12 @@ from allycompanion import dbus, device, paths, settings, updater, util
 from allycompanion.module import Context, Module
 from allycompanion.registry import Registry
 from allycompanion.resume import ResumeDetector
+
+
+def _write_json(path, obj):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(obj, f)
 
 
 def _write(root, rel, text):
@@ -178,7 +185,7 @@ def test_settings_merge_keeps_unknown_keys_and_fills_defaults():
 
 def test_settings_load_adds_module_sections(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "SETTINGS_FILE", str(tmp_path / "s.json"))
-    util.write_json(paths.SETTINGS_FILE, {"modules": {"fake": {"level": 70}}})
+    _write_json(paths.SETTINGS_FILE, {"modules": {"fake": {"level": 70}}})
     s = settings.load({"fake": FakeModule.defaults})
     assert s["modules"]["fake"] == {"enabled": False, "level": 70}
     assert s["update"]["autoCheck"] is True

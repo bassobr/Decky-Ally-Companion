@@ -1,6 +1,8 @@
 /* allycaps: in-memory patch of the Steam Deck-protocol controller capability mask
  * in steamclient.so (32-bit). Anchored on the 16-byte .rodata constant
- * {0x0160bfff, 0, 0, 0} (aligned 16), not on file offsets.
+ * {0x0160bfff, 0, 0, 0} (aligned 16), not on file offsets. Only read-only segments
+ * without code are searched, so the page's protection after the write (PROT_READ)
+ * is the one it had; a page that also holds code is never made non-executable.
  * Env: ALLYCAPS_MASK=0x... (new low-32 value, default 0x160afff = clear TRACKPAD bit 12)
  *      ALLYCAPS_LOG=/path (default $HOME/.local/state/allycaps.log)
  */
@@ -43,7 +45,7 @@ static int cb(struct dl_phdr_info *info, size_t size, void *data) {
     s->seen = 1;
     for (int i = 0; i < info->dlpi_phnum; i++) {
         const ElfW(Phdr) *ph = &info->dlpi_phdr[i];
-        if (ph->p_type != PT_LOAD || !(ph->p_flags & PF_R) || (ph->p_flags & PF_W)) continue;
+        if (ph->p_type != PT_LOAD || !(ph->p_flags & PF_R) || (ph->p_flags & (PF_W | PF_X))) continue;
         uintptr_t start = info->dlpi_addr + ph->p_vaddr;
         uintptr_t end = start + ph->p_memsz;
         for (uintptr_t p = (start + 15) & ~(uintptr_t)15; p + 16 <= end; p += 16) {

@@ -13,9 +13,11 @@ Decky Loader ── backend "Ally Companion" (root, flag "root")
                  │               lighting, profiles, news
                  ├─ resume       suspend detection (CLOCK_BOOTTIME − CLOCK_MONOTONIC)
                  ├─ uevent       netlink kobject uevents (charger, hid re-enumeration)
+                 ├─ jacksense    headphone jack switch events (SW_HEADPHONE_INSERT) instead of polling
                  ├─ dbus         busctl --json: InputPlumber (system bus), steamos-manager (session bus)
                  ├─ util.run     root by default; as_user=True drops to the Decky user's session
                  ├─ userfs       file operations below the home, done by a child as the user
+                 ├─ safefs       reads below the home without following links, as the user could
                  ├─ ally_hid     MCU feature reports on the controller's config interface
                  ├─ hidbpf       rumble packet filter (HID-BPF struct_ops via libbpf)
                  ├─ steam        steam-launcher.service, client process, drop-in helpers
@@ -43,24 +45,38 @@ path (`/ally-companion/<id>`), so the route is registered without `exact`; deep 
 `supported()`, and for toggle modules `apply()` / `revert()` / `is_applied()`. Status states:
 applied, not_applied, error, stale, restart_pending, not_supported, info, blocked. Hooks:
 `prepare(blocked_by)` (also while blocked), `start`, `stop`, `on_resume`, `on_app_changed`,
-`uninstall`, and named `actions()` the UI calls through `module_action`. The frontend talks to all
+`uninstall`, `normalize(cfg)` (checks the module's settings section from a file or a backup), and
+named `actions()` the UI calls through `module_action`. `details()` and `is_applied()` run in a
+worker thread; `on_resume` and `on_app_changed` run for all modules at once, so the fan's settling
+time after resume does not hold up the lighting. The frontend talks to all
 modules through four calls: `get_state`, `set_module_enabled`, `set_module_options`,
 `module_action`; the backend pushes `module_status`, `modules` and `audio_progress` events.
 
 | Module | Source | Touches |
 |---|---|---|
-| audio | Ally DSP | `~/homebrew/data/Ally Companion/audio`, `~/.config/systemd/user/ally-companion-dsp.service` |
+| audio | Ally DSP | `~/homebrew/data/Ally Companion/audio` (`settings.json` written by the backend, `setup.json` by the worker), `~/.config/systemd/user/ally-companion-dsp.service` |
 | mic | new | `audio/mic.conf`, `ally-companion-mic.service`: RNNoise (NoiseTorch's `nt-filter` LADSPA build that SteamOS ships) in its own PipeWire process; the cleaned source has session priority 2500, above Valve's loopback source (2010), so it becomes the default |
-| headphones | new | `audio/hp.conf`, `ally-companion-hp.service`: AutoEQ ParametricEQ as built-in biquads, smart filter on the headphone sink; runs only while the headphone route (wired) or the chosen sink (Bluetooth, USB) is in use |
+| headphones | new | `audio/hp.conf`, `ally-companion-hp.service`: AutoEQ ParametricEQ as built-in biquads (bounded, preamp so the summed response stays at or below 0 dB), smart filter on the headphone sink; runs only while the headphone route (wired) or the chosen sink (Bluetooth, USB) is in use |
 | vibration | Ally Fix | MCU `5A D1 06` / `5A D1 1F`, `vibration_intensity`, HID-BPF on the gamepad interface |
 | gyro | Ally Fix | `/etc/inputplumber/devices.d/50-rog_xbox_ally.yaml`, Steam's `steam_dev.cfg` (complex mode) |
 | gamepad_layout | Ally Fix | `~/.local/lib/ally-companion/`, drop-in `zz-ally-companion-gamepad-layout.conf` of steam-launcher.service |
 | cpu_boost | Ally Fix | `cpufreq/boost`, `scaling_max_freq` of every policy |
-| fan | Ally Fix + new | `asus_custom_fan_curve` hwmon (`pwm*_enable`, auto points) |
+| fan | Ally Fix + new | `asus_custom_fan_curve` hwmon (`pwm*_enable`, auto points); from 85 °C on never below the factory curve of the active profile, read from the EC with `pwm_enable=3` |
 | battery | new | steamos-manager `BatteryChargeLimit1`, asus-armoury `mcu_powersave`, `boot_sound` |
 | lighting | new | `ally:rgb:joystick_rings` LED class, MCU `5A B3/B4/B5/BA` effects |
 | profiles | new | overrides of lighting, vibration, CPU boost and fan while a game runs; the performance profile through steamos-manager (Steam keeps one global platform profile; the one at game start is restored) |
 | news | new | Steam news API, ASUS support API, `news/known-issues.json` of this repository |
+
+## Headphone jack
+
+The HDA codec exposes the jack as an input device, `HD-Audio Generic Headphone` (`event13` on the
+RC73XA), with `SW_HEADPHONE_INSERT`. `jacksense` reads its switch events on the event loop; the
+speaker DSP's jack watcher and the headphone EQ check PipeWire's route right after an event (a few
+times over three seconds, because the route follows the jack a moment later) and otherwise once a
+minute. Before 0.5.0 both polled `pw-dump` every three seconds: about 390 KB of JSON per dump,
+which made the backend and its children use 1.6 % of a core all the time (38.6 s of CPU in 41
+minutes, measured on the RC73XA). Without the input device both fall back to polling. A status
+round shares one `pw-dump` and one `systemctl is-active` answer between modules.
 
 ## Smart filters and Valve's loopback source
 
@@ -90,10 +106,18 @@ supplementary groups and `XDG_RUNTIME_DIR` / `DBUS_SESSION_BUS_ADDRESS` of that 
 children never inherit the backend environment (Decky's PyInstaller runtime sets `LD_LIBRARY_PATH`
 to its own libraries). Files root writes below the home directory are handed to the user.
 
+Reads below the home go through `safefs`: every path component below the home is opened without
+following symlinks, and only regular files the user may read are read in-process; anything else
+(a link, a FIFO, a file only root may read) goes to the user's child process, which reads it with
+the user's permissions or fails. The one file root writes below the home is its own
+`settings.json`, through a directory opened the same way.
+
 The speaker DSP is the exception to "root writes": everything it writes (download, venv,
-conversion, presets, unit) runs in `allydsp.worker` with the system Python as the user, which keeps
-the ownership Ally DSP had. The backend reads its state, starts and stops the unit through
-`systemctl --user` (headphones) and writes only `audio/settings.json`.
+conversion, presets, unit, `audio/setup.json`) runs in `allydsp.worker` with the system Python as
+the user, which keeps the ownership Ally DSP had. The backend reads its state, starts and stops the
+unit through `systemctl --user` (headphones) and writes `audio/settings.json` through `userfs`.
+Each of the two audio settings files has one writer, so the two processes cannot overwrite each
+other's changes.
 
 steamos-manager runs twice: a root daemon on the system bus and a user daemon on the session bus.
 The public API (what `steamosctl` uses) is the session one.
@@ -102,7 +126,11 @@ The public API (what `steamosctl` uses) is the session one.
 
 Decky runs backends in its bundled Python 3.11 (PyInstaller). It lacks `xml.etree`, which the
 pure-Python D-Bus libraries need, hence `busctl`. `glob`, `ctypes`, `fcntl`, `zipfile` work
-(verified on the device). Check new stdlib imports on the device before relying on them.
+(verified on the device). It also lacks `cmath` (0.5.0 first failed to start on it). Check new stdlib
+imports on the device before relying on them; `tests/test_hardening.py` lists the modules known to
+be there and fails on any other import in the backend. The DSP
+worker, the `userfs` helper and the uninstall cleanup run in SteamOS' system Python (3.13 on 3.8,
+3.14 on 3.9); CI runs the tests on 3.11, 3.13 and 3.14.
 
 ## Interfaces found on the ROG Xbox Ally X
 
@@ -160,8 +188,10 @@ lilv 0.28, InputPlumber 0.78.0, steamos-manager 26.4.1. What changed for the plu
 
 `updater.check` reads `releases/latest` (cached six hours, retried after 30 minutes on failure; a
 repository without releases is not an error), `verify_release` checks `SHA256SUMS.minisig` against
-the pinned `minisign.pub`, and the frontend hands the zip URL and hash to Decky's
-`utilities/install_plugin`.
+the pinned `minisign.pub`, `download_verified` downloads the zip into `/run/ally-companion-update`
+(root, 0700) and checks it against the signed hash, and the frontend hands that `file://` path and
+the hash to Decky's `utilities/install_plugin`. Decky uninstalls the old version before it checks
+a zip; checked beforehand, a bad download never removes the plugin.
 
 Decky calls `_uninstall` also while it replaces the plugin during an update. So `_uninstall` copies
 both Python packages to the data directory and starts the transient timer

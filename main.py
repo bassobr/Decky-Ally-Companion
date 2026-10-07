@@ -11,8 +11,9 @@ import decky  # type: ignore
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), "py_modules"))
 
 from allycompanion import backup, cleanup, userfs, conflicts, deckyfix, device, diagnostics, live, migrate, paths, settings, steam, updater  # noqa: E402
+from allycompanion.jacksense import JackSense  # noqa: E402
 from allycompanion.util import run  # noqa: E402
-from allycompanion.module import Context  # noqa: E402
+from allycompanion.module import Context, spawn  # noqa: E402
 from allycompanion.modules import MODULES  # noqa: E402
 from allycompanion.registry import Registry  # noqa: E402
 from allycompanion.resume import ResumeDetector  # noqa: E402
@@ -24,11 +25,12 @@ class Plugin:
     async def _main(self):
         if not deckyfix.park_reader_at_eof():
             decky.logger.warning("Decky socket workaround not applied; stopping may take 5 s")
-        self.loop = asyncio.get_event_loop()
-        paths.ensure_dirs()
+        self.loop = asyncio.get_running_loop()
+        await asyncio.to_thread(paths.ensure_dirs)
         await asyncio.to_thread(cleanup.cancel)
+        await asyncio.to_thread(updater.clear_staging)  # a zip from an update that is done or was declined
         self.registry = Registry(MODULES)
-        self.settings: Dict[str, Any] = settings.load(self.registry.defaults())
+        self.settings: Dict[str, Any] = await asyncio.to_thread(settings.load, self.registry.defaults())
         if migrate.run(self.settings, self.registry.defaults()):
             self._save()
         self.uevent = UeventMonitor()
@@ -36,11 +38,15 @@ class Plugin:
             self.uevent.start()
         except OSError as e:
             decky.logger.error("uevent monitor not started: %s", e)
-        self.registry.bind(self.settings, Context(self._save, decky.emit, self.uevent))
+        self.jack = JackSense()
+        self.jack.start()
+        self.registry.bind(self.settings, Context(self._save, decky.emit, self.uevent, jack=self.jack))
+        self._save()  # the normalized settings
         self.update_task: Optional[asyncio.Task] = None
+        self.update_lock = asyncio.Lock()
         self.resume = ResumeDetector(self.registry.on_resume)
         self.resume.start()
-        self.loop.create_task(self._startup())
+        spawn(self._startup())
         decky.logger.info("Ally Companion backend started (euid %s, board %s)", os.geteuid(), device.board())
 
     # _unload and _uninstall do not await long work: if deckyfix could not stop Decky's socket
@@ -49,8 +55,9 @@ class Plugin:
         self.resume.stop()
         if self.update_task and not self.update_task.done():
             self.update_task.cancel()
-        self.loop.create_task(self.registry.stop())
+        spawn(self.registry.stop())
         self.uevent.stop()
+        self.jack.stop()
         decky.logger.info("Ally Companion backend unloaded")
 
     async def _uninstall(self):
@@ -78,17 +85,19 @@ class Plugin:
     async def get_state(self) -> Dict[str, Any]:
         info = await asyncio.to_thread(device.info)
         stack = await asyncio.to_thread(device.stack)
-        self.registry.refresh_blocked()
+        self.registry.set_blocked(await asyncio.to_thread(conflicts.blocked))
         return {
             "version": decky.DECKY_PLUGIN_VERSION,
             "device": info,
             "stack": stack,
-            "conflicts": conflicts.active_plugins(),
+            "conflicts": await asyncio.to_thread(conflicts.active_plugins),
             "modules": await self.registry.status(),
             "update": self._update_info(),
         }
 
     # ---------------------------------------------------------------- modules
+    # Any local process can reach these methods through Decky's socket: every argument is checked
+    # by the module like a value from settings.json.
     async def _module_result(self, mid: str, error: str = "", result: Any = None) -> Dict[str, Any]:
         m = self.registry.get(mid)
         st = await m.status_async()
@@ -99,9 +108,9 @@ class Plugin:
         return {"ok": not err, "error": err, "result": result, "status": st}
 
     async def set_module_enabled(self, mid: str, enabled: bool) -> Dict[str, Any]:
+        m = self.registry.get(mid)  # an unknown id is an error for the caller, not a module result
         try:
             self.registry.check_not_blocked(mid)
-            m = self.registry.get(mid)
             ok, reason = m.supported()
             if not ok:
                 return await self._module_result(mid, reason)
@@ -111,21 +120,23 @@ class Plugin:
             return await self._module_result(mid, str(e))
 
     async def set_module_options(self, mid: str, options: Dict[str, Any]) -> Dict[str, Any]:
+        m = self.registry.get(mid)
         try:
             self.registry.check_not_blocked(mid)
-            await self.registry.get(mid).change_options(options or {})
+            await m.change_options(options if isinstance(options, dict) else {})
             return await self._module_result(mid)
         except Exception as e:  # noqa: BLE001
             decky.logger.warning("[%s] options failed: %s", mid, e)
             return await self._module_result(mid, str(e))
 
     async def module_action(self, mid: str, action: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        m = self.registry.get(mid)
         try:
             self.registry.check_not_blocked(mid)
-            fn = self.registry.get(mid).actions().get(action)
+            fn = m.actions().get(action)
             if fn is None:
                 raise KeyError(f"{mid} has no action {action!r}")
-            result = await fn(**(args or {}))
+            result = await fn(**(args if isinstance(args, dict) else {}))
             return await self._module_result(mid, result=result)
         except Exception as e:  # noqa: BLE001
             decky.logger.warning("[%s] %s failed: %s", mid, action, e)
@@ -133,6 +144,8 @@ class Plugin:
 
     async def on_running_app_changed(self, app_id: Optional[str]) -> Dict[str, Any]:
         app = str(app_id) if app_id else None
+        if app is not None and not (app.isdigit() and len(app) <= 20):
+            raise ValueError(f"unexpected app id {app_id!r}")
         await self.registry.on_app_changed(app)
         await self._emit_state()  # pages show the running game's settings
         return {"appId": app}
@@ -146,7 +159,7 @@ class Plugin:
 
     async def backup_settings(self) -> Dict[str, Any]:
         audio = self.registry.modules.get("audio")
-        data = backup.build(self.settings["modules"], audio.export() if audio else {}, decky.DECKY_PLUGIN_VERSION)
+        data = backup.build(self.settings["modules"], audio.export() if audio else {}, decky.DECKY_PLUGIN_VERSION)  # type: ignore[attr-defined]
         name = await asyncio.to_thread(backup.write, data)
         decky.logger.info("settings backed up to %s", name)
         return {"name": name, "dir": backup.backup_dir()}
@@ -158,7 +171,7 @@ class Plugin:
         data = await asyncio.to_thread(backup.read, name)
         restored = await self.registry.restore(data["modules"], backup.TRANSIENT)
         audio = self.registry.modules.get("audio")
-        if audio and data.get("audio") and "audio" not in self.registry.blocked:
+        if audio and data["audio"] and "audio" not in self.registry.blocked:
             await audio.restore(data["audio"])  # type: ignore[attr-defined]
         decky.logger.info("settings restored from %s", name)
         await self._emit_state()
@@ -179,19 +192,20 @@ class Plugin:
 
     # ---------------------------------------------------------------- updates
     async def check_for_update(self, force: bool = False) -> Dict[str, Any]:
-        state = dict(self.settings["update"])  # the worker thread fills a copy
-        res = await asyncio.to_thread(updater.check, state, decky.DECKY_PLUGIN_VERSION, bool(force))
-        self.settings["update"] = state
-        self._save()
+        async with self.update_lock:  # the startup check, a due check and the button never overlap
+            state = dict(self.settings["update"])  # the worker thread fills a copy
+            res = await asyncio.to_thread(updater.check, state, decky.DECKY_PLUGIN_VERSION, bool(force))
+            self.settings["update"] = state
+            self._save()
         await decky.emit("update_state", res)
         return res
 
     def _update_info(self) -> Dict[str, Any]:
         """Cached update state; a due check runs in the background and reports through update_state."""
         state = self.settings["update"]
-        if state.get("autoCheck", True) and updater.check_due(state) \
+        if state.get("autoCheck", True) and updater.check_due(state) and not self.update_lock.locked() \
                 and not (self.update_task and not self.update_task.done()):
-            self.update_task = self.loop.create_task(self.check_for_update(False))
+            self.update_task = spawn(self.check_for_update(False))
         return updater.check(state, decky.DECKY_PLUGIN_VERSION, fetch=False)
 
     async def prepare_update(self) -> Dict[str, Any]:
@@ -204,11 +218,13 @@ class Plugin:
             raise RuntimeError(f"v{latest.get('version')} is not newer than v{decky.DECKY_PLUGIN_VERSION}")
         self.settings["update"]["latest"] = latest
         self._save()
-        return await asyncio.to_thread(updater.verify_release, latest)
+        release = await asyncio.to_thread(updater.verify_release, latest)
+        return await asyncio.to_thread(updater.download_verified, release)
 
     # ---------------------------------------------------------------- diagnostics
     async def get_diagnostics(self) -> Dict[str, Any]:
         d = await asyncio.to_thread(diagnostics.collect, await self.registry.status())
+        d["jack"] = {"device": self.jack.path, "events": self.jack.available}
         text = diagnostics.render_text(d)
         try:  # the log directory belongs to the user
             await asyncio.to_thread(userfs.write_text, os.path.join(paths.LOG_DIR, "diagnostics.txt"), text + "\n")

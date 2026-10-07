@@ -20,6 +20,7 @@ import { moduleAction } from "./backend";
 import { applyControllerArt, revertControllerArt } from "./controllerArt";
 import { store } from "./store";
 import type { UiPatchResult } from "./types";
+import { findExport, webpackRequire } from "./webpack";
 
 const reportGamepadLayoutUi = (result: UiPatchResult | null) => moduleAction("gamepad_layout", "report_ui", { result });
 
@@ -44,6 +45,7 @@ interface Patched {
   orig: Record<GripId, Saved>;
   store: any;
   wrapped: Record<string, (...args: any[]) => any>;
+  own: Record<string, PropertyDescriptor | undefined>; // a getter's own property before the wrap, if it had one
   result: UiPatchResult;
 }
 
@@ -51,30 +53,6 @@ declare global {
   interface Window {
     __allyCompanionLayout?: Patched;
   }
-}
-
-let req: any;
-function webpackRequire(): any {
-  if (!req) (window as any).webpackChunksteamui?.push([[Math.random()], {}, (r: any) => { req = r; }]);
-  return req;
-}
-
-/** Walk the module factories whose source mentions `needle`, evaluate them, hand each export to `pick`. */
-function findExport(r: any, needle: string, pick: (value: any) => boolean): { value: any; moduleId: string } | null {
-  for (const id of Object.keys(r.m)) {
-    let src = "";
-    try { src = String(r.m[id]); } catch { continue; }
-    if (!src.includes(needle)) continue;
-    let exp: any;
-    try { exp = r(id); } catch { continue; }
-    if (!exp || typeof exp !== "object") continue;
-    for (const k of Object.keys(exp)) {
-      let v: any;
-      try { v = exp[k]; } catch { continue; }
-      if (v && typeof v === "object" && pick(v)) return { value: v, moduleId: id };
-    }
-  }
-  return null;
 }
 
 function gripEntries(table: any): Partial<Record<GripId, Entry>> {
@@ -118,6 +96,7 @@ export function applyLayoutPatch(): UiPatchResult {
 
   // ---- stage 1: metadata table, all-or-nothing ---------------------------------
   const found = findExport(r, "source_filter", (t) => {
+    if (typeof t !== "object") return false;
     const g = gripEntries(t);
     return IDS.every((id) => g[id]);
   });
@@ -141,16 +120,19 @@ export function applyLayoutPatch(): UiPatchResult {
   }
 
   // ---- stage 2: clamp the bit, only now -------------------------------------------
-  const storeHit = findExport(r, "m_unboundControllerList", (v) => typeof v.GetControllers === "function" && v.m_controllerList !== undefined);
+  const storeHit = findExport(r, "m_unboundControllerList",
+    (v) => typeof v === "object" && typeof v.GetControllers === "function" && v.m_controllerList !== undefined);
   if (!storeHit) {
     restore(byId, orig);
     return fail("clamp", "controller store not found");
   }
   const cstore = storeHit.value;
   const wrapped: Record<string, (...args: any[]) => any> = {};
+  const own: Record<string, PropertyDescriptor | undefined> = {};
   for (const name of GETTERS) {
     const orig = cstore[name];
     if (typeof orig !== "function") continue;
+    own[name] = Object.getOwnPropertyDescriptor(cstore, name);
     const fn = function (this: any, ...args: any[]) {
       const res = orig.apply(this, args);
       clampList(this?.m_controllerList);
@@ -169,7 +151,7 @@ export function applyLayoutPatch(): UiPatchResult {
   let art = "skipped";
   try { art = applyControllerArt(r); } catch (e) { art = `failed: ${e}`; }
   const result: UiPatchResult = { ok: true, module: found.moduleId, wrapped: Object.keys(wrapped), caps, art };
-  window.__allyCompanionLayout = { byId, orig, store: cstore, wrapped, result };
+  window.__allyCompanionLayout = { byId, orig, store: cstore, wrapped, own, result };
   return result;
 }
 
@@ -179,8 +161,10 @@ export function revertLayoutPatch(): boolean {
   revertControllerArt();
   restore(p.byId, p.orig);
   for (const [name, fn] of Object.entries(p.wrapped)) {
-    // the original lives on the prototype; deleting the own property uncovers it
-    if (Object.getOwnPropertyDescriptor(p.store, name)?.value === fn) delete p.store[name];
+    if (Object.getOwnPropertyDescriptor(p.store, name)?.value !== fn) continue; // replaced since: not ours to undo
+    const before = p.own[name];
+    if (before) Object.defineProperty(p.store, name, before); // it was an own property: put it back
+    else delete p.store[name]; // it lives on the prototype: deleting ours uncovers it
   }
   for (const l of [p.store.m_controllerList, p.store.m_unboundControllerList]) {
     if (Array.isArray(l)) for (const c of l) if (isAlly(c) && !(c.unCapabilities & GRIPS)) c.unCapabilities |= GRIPS;

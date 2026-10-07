@@ -30,10 +30,11 @@ def copy_dir() -> str:
 def schedule() -> bool:
     py_modules = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     shutil.rmtree(copy_dir(), ignore_errors=True)
-    os.makedirs(copy_dir(), mode=0o700)
+    os.makedirs(copy_dir(), mode=0o700, exist_ok=True)
+    os.chmod(copy_dir(), 0o700)
     for pkg in PACKAGES:  # the plugin directory is gone when the cleanup runs
         shutil.copytree(os.path.join(py_modules, pkg), os.path.join(copy_dir(), pkg),
-                        ignore=shutil.ignore_patterns("__pycache__"))
+                        ignore=shutil.ignore_patterns("__pycache__"), dirs_exist_ok=True)
     env: List[str] = []
     for k, v in (("DECKY_USER_HOME", paths.HOME), ("DECKY_USER", paths.USER),
                  ("ALLYCOMPANION_PLUGIN_DIR", paths.PLUGIN_DIR), ("DECKY_PLUGIN_SETTINGS_DIR", paths.SETTINGS_DIR),

@@ -19,7 +19,6 @@ RUNTIME_DIR = os.environ.get("DECKY_PLUGIN_RUNTIME_DIR") or os.path.join(HOME, "
 LOG_DIR = os.environ.get("DECKY_PLUGIN_LOG_DIR") or os.path.join(HOME, "homebrew", "logs", PLUGIN_NAME)
 
 SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.json")
-TMP_DIR = os.path.join(RUNTIME_DIR, "tmp")
 PUBKEY_FILE = os.path.join(PLUGIN_DIR, "minisign.pub")
 
 # Tests point this at a fake tree; every sysfs/procfs/os-release read goes through it.
@@ -31,5 +30,9 @@ def sys_path(*parts: str) -> str:
 
 
 def ensure_dirs() -> None:
-    for d in (SETTINGS_DIR, RUNTIME_DIR, TMP_DIR, LOG_DIR):
-        os.makedirs(d, exist_ok=True)
+    """Decky creates these as the user; a missing one is created as the user too, never by root."""
+    from . import userfs
+
+    for d in (SETTINGS_DIR, RUNTIME_DIR, LOG_DIR):
+        if not os.path.isdir(d):
+            userfs.mkdir(d)

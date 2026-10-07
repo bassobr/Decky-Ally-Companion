@@ -4,22 +4,64 @@ Each entry holds optional parts. When the game starts, the parts go to the match
 overrides (lighting, vibration, cpu_boost, fan); when it ends, the overrides are cleared. The
 performance profile is set through steamos-manager: Steam keeps a single global platform profile,
 so the one active at game start is restored when the game ends. Per-game speaker presets stay
-with the audio module (its perApp list), which the UI shows next to these.
+with the audio module (its perApp list), which the UI shows next to these. Every part is checked
+like the module's own setting when it is stored, whether it comes from the UI or a file.
 """
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any, Dict, Optional
 
 from .. import dbus
 from ..constants import STEAMOS_MANAGER_BUS, STEAMOS_MANAGER_PATH
 from ..log import logger
 from ..module import Module
+from .fan import sanitize as sanitize_curve
+from .lighting import clean_values as clean_light
+from .vibration import clamp
 
 # part name -> module that takes it as an override
 OVERRIDES = {"lighting": "lighting", "vibration": "vibration", "cpuBoost": "cpu_boost", "fan": "fan"}
 PARTS = (*OVERRIDES, "performance")
 PERF_IFACE = f"{STEAMOS_MANAGER_BUS}.PerformanceProfile1"
+APP_ID = re.compile(r"^\d{1,20}$")
+PERF_PROFILE = re.compile(r"^[a-z0-9_-]{1,32}$")
+
+
+def clean_part(part: str, values: Any) -> Optional[Dict[str, Any]]:
+    """One part of a game profile, checked like the module's own setting; None: not usable."""
+    if not isinstance(values, dict):
+        return None
+    if part == "lighting":
+        return clean_light(values) or None
+    if part == "vibration":
+        left = clamp(values.get("left", 50))
+        return {"left": left, "right": clamp(values.get("right", left))}
+    if part == "cpuBoost":
+        return {"boost": values["boost"]} if isinstance(values.get("boost"), bool) else None
+    if part == "fan":
+        try:
+            return {"curve": sanitize_curve(values.get("curve"))}
+        except (TypeError, ValueError):
+            return None
+    if part == "performance":
+        p = values.get("profile")
+        return {"profile": p} if isinstance(p, str) and PERF_PROFILE.match(p) else None
+    return None
+
+
+def clean_apps(apps: Any) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for app_id, entry in (apps.items() if isinstance(apps, dict) else []):
+        if not isinstance(app_id, str) or not APP_ID.match(app_id) or not isinstance(entry, dict):
+            continue
+        clean = {p: v for p in PARTS if (v := clean_part(p, entry.get(p))) is not None}
+        if clean:
+            if isinstance(entry.get("name"), str):
+                clean["name"] = entry["name"][:80]
+            out[app_id] = clean
+    return out
 
 
 def get_perf_profile() -> Optional[str]:
@@ -40,6 +82,11 @@ class Profiles(Module):
         super().__init__()
         self.running_app: Optional[str] = None
         self._perf_profiles: Optional[list] = None
+
+    def normalize(self, cfg: Dict[str, Any]) -> None:
+        cfg["apps"] = clean_apps(cfg.get("apps"))
+        b = cfg.get("perfBaseline")
+        cfg["perfBaseline"] = b if isinstance(b, str) and PERF_PROFILE.match(b) else None
 
     def actions(self):
         return {"set_app": self.set_app, "remove_app": self.remove_app}
@@ -100,23 +147,29 @@ class Profiles(Module):
 
     async def set_app(self, appId: str, part: str, values: Optional[Dict[str, Any]] = None, name: str = "") -> None:  # noqa: N803
         """Set (values) or clear (None) one part of a game's profile."""
+        app_id = str(appId)
+        if not APP_ID.match(app_id):
+            raise ValueError(f"unexpected app id {appId!r}")
         if part not in PARTS:
             raise ValueError(f"unknown part {part!r}")
         apps = self.apps()
-        entry = dict(apps.get(str(appId)) or {})
+        entry = dict(apps.get(app_id) or {})
         if name:
             entry["name"] = str(name)[:80]
         if values:
-            entry[part] = dict(values)
+            clean = clean_part(part, values)
+            if clean is None:
+                raise ValueError(f"invalid {part} settings")
+            entry[part] = clean
         else:
             entry.pop(part, None)
         if any(p in entry for p in PARTS):
-            apps[str(appId)] = entry
+            apps[app_id] = entry
         else:
-            apps.pop(str(appId), None)
+            apps.pop(app_id, None)
         self.update_cfg({"apps": apps})
-        if str(appId) == self.running_app:
-            await self._push(apps.get(str(appId)))
+        if app_id == self.running_app:
+            await self._push(apps.get(app_id))
 
     async def remove_app(self, appId: str) -> None:  # noqa: N803
         apps = self.apps()

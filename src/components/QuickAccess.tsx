@@ -30,7 +30,7 @@ function Sound() {
   const m = usePluginState().state?.modules.audio;
   if (!m || !isActive(m) || !m.details.setup?.done) return null;
   const d = m.details;
-  const appId: string | null = d.runningApp;
+  const appId: string | null = d.runningApp ?? null;
   const per = appId ? d.perApp?.[appId] : undefined;
   const profiles: { id: string; label: string }[] = d.profiles ?? [];
   const OFF = "__off", DEFAULT = "__default";

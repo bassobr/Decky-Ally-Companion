@@ -16,6 +16,8 @@
  * missing → stock picture, reported as a detail.
  */
 
+import { findExport } from "./webpack";
+
 const STYLE_ID = "ally-companion-art";
 const BASE_IMAGE = "cropped_controller_config_controller.png";
 const TYPE_CLASSES = ["controller_rog_ally", "controller_steamos_handheld"];
@@ -69,18 +71,7 @@ function renderElement(node: any, depth: number): string {
 }
 
 function findComponent(req: any): ((props: any) => any) | null {
-  for (const id of Object.keys(req.m)) {
-    let src = "";
-    try { src = String(req.m[id]); } catch { continue; }
-    if (!src.includes("LegionGoS")) continue;
-    let exp: any;
-    try { exp = req(id); } catch { continue; }
-    if (!exp || typeof exp !== "object") continue;
-    let v: any;
-    try { v = exp.LegionGoS; } catch { continue; }
-    if (typeof v === "function") return v;
-  }
-  return null;
+  return findExport(req, "LegionGoS", (v, key) => key === "LegionGoS" && typeof v === "function")?.value ?? null;
 }
 
 /** CSS that swaps the diagram, or an error string. */

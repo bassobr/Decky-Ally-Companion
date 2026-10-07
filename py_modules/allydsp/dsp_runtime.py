@@ -2,18 +2,22 @@
 from __future__ import annotations
 
 import os
-import shutil
+import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from . import confgen, hardware, paths
 from .constants import INPUT_NODE
 from .log import logger
-from .util import atomic_copy, atomic_write_text, read_json, remove_file, run, write_json
+from .util import atomic_copy, atomic_write_text, read_json, read_text, remove_file, rmtree_user, run, write_json
 
 ACTIVE_CONF = os.path.join(paths.ACTIVE_DIR, "chain.conf")
 ACTIVE_IRS = os.path.join(paths.ACTIVE_DIR, "ir.irs")
 ACTIVE_META = os.path.join(paths.ACTIVE_DIR, "meta.json")
+
+_active: Tuple[float, bool] = (0.0, False)  # last is-active answer and when
+_active_lock = threading.Lock()
+
 
 def systemctl(*args: str, timeout: float = 30) -> Any:
     return run(["systemctl", "--user", *args], timeout=timeout)
@@ -26,11 +30,7 @@ def unit_text() -> str:
 
 
 def unit_installed() -> bool:
-    try:
-        with open(paths.UNIT_PATH, "r", encoding="utf-8") as f:
-            return f.read() == unit_text()
-    except OSError:
-        return False
+    return read_text(paths.UNIT_PATH) == unit_text()
 
 
 def install_unit() -> None:
@@ -47,8 +47,21 @@ def ensure_unit() -> None:
         install_unit()
 
 
-def is_active() -> bool:
-    return systemctl("is-active", paths.UNIT_NAME).out.strip() == "active"
+def _remember(value: bool) -> None:
+    global _active
+    with _active_lock:
+        _active = (time.monotonic(), value)
+
+
+def is_active(max_age: float = 0.0) -> bool:
+    """systemctl is-active; `max_age` reuses an answer that young (one status round)."""
+    with _active_lock:
+        at, value = _active
+    if max_age and time.monotonic() - at < max_age:
+        return value
+    value = systemctl("is-active", paths.UNIT_NAME).out.strip() == "active"
+    _remember(value)
+    return value
 
 
 def is_enabled() -> bool:
@@ -62,15 +75,23 @@ def enable(on: bool = True) -> None:
 
 
 def start() -> bool:
-    return systemctl("start", paths.UNIT_NAME).ok
+    _remember(False)
+    ok = systemctl("start", paths.UNIT_NAME).ok
+    _remember(ok)
+    return ok
 
 
 def stop() -> bool:
-    return systemctl("stop", paths.UNIT_NAME).ok
+    ok = systemctl("stop", paths.UNIT_NAME).ok
+    _remember(False)
+    return ok
 
 
 def restart() -> bool:
-    return systemctl("restart", paths.UNIT_NAME).ok
+    _remember(False)
+    ok = systemctl("restart", paths.UNIT_NAME).ok
+    _remember(ok)
+    return ok
 
 
 def active_meta() -> Optional[Dict[str, Any]]:
@@ -140,4 +161,4 @@ def remove_unit() -> None:
     enable(False)
     remove_file(paths.UNIT_PATH)
     systemctl("daemon-reload")
-    shutil.rmtree(paths.ACTIVE_DIR, ignore_errors=True)
+    rmtree_user(paths.ACTIVE_DIR)

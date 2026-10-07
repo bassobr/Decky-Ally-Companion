@@ -7,12 +7,13 @@ gets called after resume. Modules never block the event loop for long; slow work
 asyncio.to_thread.
 
 Status states: applied, not_applied, error, stale, restart_pending, not_supported, info (a
-module without an enabled flag).
+module without an enabled flag), blocked (another plugin drives the same hardware; set by the
+registry).
 """
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, Optional, Set, Tuple
 
 from .log import logger
 
@@ -21,14 +22,26 @@ class Context:
     """What the registry hands to every module."""
 
     def __init__(self, save: Callable[[], None], emit: Callable[[str, Any], Awaitable[None]],
-                 uevent: Any = None, settings: Optional[Dict[str, Any]] = None) -> None:
+                 uevent: Any = None, settings: Optional[Dict[str, Any]] = None, jack: Any = None) -> None:
         self.save = save
         self.emit = emit
         self.uevent = uevent
+        self.jack = jack  # jacksense.JackSense: headphone jack events
         self.settings = settings or {}  # the whole settings tree, read-only for modules
         self.running_app: Optional[str] = None
         self.modules: Dict[str, "Module"] = {}  # the other modules, for the profiles module
         self.blocked: Dict[str, str] = {}  # module id -> plugin that drives the same hardware
+
+
+_background: "Set[asyncio.Task]" = set()
+
+
+def spawn(coro: Awaitable[Any]) -> "asyncio.Task":
+    """create_task with a strong reference until the task ends (the loop only keeps weak ones)."""
+    task = asyncio.get_running_loop().create_task(coro)  # type: ignore[arg-type]
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+    return task
 
 
 async def cancel_task(task: "Optional[asyncio.Task]") -> None:
@@ -64,6 +77,10 @@ class Module:
     def bind(self, cfg: Dict[str, Any], ctx: Context) -> None:
         self.cfg, self.ctx = cfg, ctx
 
+    def normalize(self, cfg: Dict[str, Any]) -> None:
+        """Check a settings section in place (values come from a file the user owns, or a backup):
+        ranges, enums and nested structures beyond the types settings.merge already enforces."""
+
     # ------------------------------------------------------------- settings
     def save(self) -> None:
         if self.ctx:
@@ -91,11 +108,8 @@ class Module:
         """Undo everything apply() changed."""
 
     def details(self) -> Dict[str, Any]:
-        """Module-specific values for the UI."""
+        """Module-specific values for the UI; runs in a worker thread."""
         return {}
-
-    async def details_async(self) -> Dict[str, Any]:
-        return await asyncio.to_thread(self.details)
 
     def set_options(self, opts: Dict[str, Any]) -> bool:
         """Validate and store options; True when something changed that apply() must push."""
@@ -173,6 +187,16 @@ class Module:
         """Subclasses turn applied/not_applied into stale, restart_pending, ..."""
         return state, message
 
+    def _status_parts(self) -> Tuple[str, str, Dict[str, Any]]:
+        try:
+            details = self.details()
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[%s] details failed", self.id)
+            details = {"error": str(e)}
+        state, message = self._state()
+        state, message = self.refine(state, message, details)
+        return state, message, details
+
     async def status_async(self) -> Dict[str, Any]:
         ok, reason = self.supported()
         out: Dict[str, Any] = {"id": self.id, "title": self.title, "supported": ok, "toggle": self.toggle,
@@ -180,12 +204,7 @@ class Module:
                                "details": {}}
         if not ok:
             return out
-        try:
-            details = await self.details_async()
-        except Exception as e:  # noqa: BLE001
-            logger.exception("[%s] details failed", self.id)
-            details = {"error": str(e)}
-        state, message = self._state()
-        state, message = self.refine(state, message, details)
+        # details() and is_applied() read files and run systemctl/busctl: off the event loop
+        state, message, details = await asyncio.to_thread(self._status_parts)
         out.update({"state": state, "message": message, "details": details})
         return out

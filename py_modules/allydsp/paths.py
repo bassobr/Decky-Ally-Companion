@@ -1,6 +1,7 @@
 """Filesystem layout. Everything audio lives below the plugin's data directory in `audio/`,
-owned by the Decky user: the worker (as that user) writes it, the root backend only reads it,
-except settings.json, which both write (the backend hands the file back to the user)."""
+owned by the Decky user and written as that user: the worker writes the setup state (setup.json),
+the downloads, the venv, the presets and the unit; the backend writes settings.json through a
+child process running as the user."""
 from __future__ import annotations
 
 import os
@@ -22,6 +23,7 @@ LOG_DIR = os.environ.get("DECKY_PLUGIN_LOG_DIR") or os.path.join(HOME, "homebrew
 RUNTIME_DIR = os.path.join(DATA_DIR, "audio")
 SETTINGS_DIR = RUNTIME_DIR
 SETTINGS_FILE = os.path.join(RUNTIME_DIR, "settings.json")
+SETUP_FILE = os.path.join(RUNTIME_DIR, "setup.json")
 DAX3_DIR = os.path.join(RUNTIME_DIR, "dax3")
 VENV_DIR = os.path.join(RUNTIME_DIR, "venv")
 PRESETS_DIR = os.path.join(RUNTIME_DIR, "presets")

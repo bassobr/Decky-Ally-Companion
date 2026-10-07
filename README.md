@@ -14,7 +14,7 @@ Tested on both devices; see [Tested devices](#tested-devices) for the few differ
 | Audio | Dolby speaker tuning from ASUS' own driver package as a PipeWire filter chain (profiles, voicings, per-game presets, leveler, dialog enhancer, pre-gain, pause on headphones); microphone noise suppression (RNNoise); headphone EQ with AutoEQ profiles |
 | Controller | Grip vibration strength, Enhanced Vibration, rumble on the impulse triggers, gyro axis fix for Steam Input, Steam Input layout without trackpads and phantom rear buttons, reconnect after a hang |
 | Lighting | Joystick rings: static colour, breathing, colour cycle, rainbow, battery level display |
-| Power & battery | CPU boost off (on the Xbox Ally X with the frequency cap kept after charger events), fan curve pinning against fans stuck at full speed after sleep (up to SteamOS 3.9.1; 3.9.2 fixes this itself) and custom curves per profile, charge limit and "charge to 100 % once", battery health with daily history, controller power saving in sleep, boot sound |
+| Power & battery | CPU boost off (on the Xbox Ally X with the frequency cap kept after charger events), fan curve pinning against fans stuck at full speed after sleep (up to SteamOS 3.9.1; 3.9.2 fixes this itself) and custom curves per profile (from 85 °C never below the factory curve), charge limit and "charge to 100 % once", battery health with daily history, controller power saving in sleep, boot sound |
 | Game profiles | Per-game lighting, vibration strength, performance profile, CPU boost and fan curve (per-game sound lives on the Audio page) |
 | News | SteamOS releases of the installed channel with the Ally-related changes, BIOS for the board (EZ Flash download), known issues; new items as a toast |
 | System | Plugin updates, settings backup and restore, diagnostics |
@@ -73,10 +73,12 @@ sudo PYTHONPATH=py_modules python3 -m allycompanion.cli diagnostics
 ```bash
 git submodule update --init                # converter (speaker-tuning-to-easyeffects)
 pnpm install && pnpm build                 # frontend
-python3 -m pytest tests -q                 # backend (Python 3.9+)
+python3 -m pytest tests -q                 # backend (CI: Python 3.11, 3.13, 3.14)
 scripts/assemble-converter.sh              # copy the converter from the submodule
 scripts/fetch-lsp.sh                       # bundle the LSP LV2 plugins
 DECK_SUDO_PASS=... scripts/dev-deploy.sh deck@<ip>   # copy to the handheld, restart Decky
+shim/build.sh                              # Steam client shim in a pinned container (podman;
+                                           # CONTAINER_ENGINE=docker works too), reproducible
 ```
 
 Architecture and the interfaces found on the device: [docs/architecture.md](docs/architecture.md).

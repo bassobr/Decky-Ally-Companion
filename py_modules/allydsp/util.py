@@ -1,56 +1,32 @@
-"""Subprocess, hashing, atomic file and JSON helpers."""
+"""Subprocess, hashing, atomic file and JSON helpers.
+
+Inside the root backend every command runs as the Decky user and every file below the home is
+read through allycompanion.safefs and written through allycompanion.userfs (a child process as the
+user), so symlinks planted by the user cannot redirect root. The worker runs as the user and uses
+the plain operations.
+"""
 from __future__ import annotations
 
 import hashlib
 import json
 import os
 import shutil
-import subprocess
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+from allycompanion.util import Result, user_ids, which  # noqa: F401  (shared with the backend)
+from allycompanion.util import run as _run
 
 from . import paths
 
 
-class Result:
-    __slots__ = ("rc", "out", "err")
-
-    def __init__(self, rc: int, out: str, err: str):
-        self.rc, self.out, self.err = rc, out, err
-
-    def __repr__(self) -> str:
-        return f"Result(rc={self.rc})"
-
-    @property
-    def ok(self) -> bool:
-        return self.rc == 0
-
-
-def user_ids() -> "tuple[int, int]":
-    st = os.stat(paths.HOME)
-    return st.st_uid, st.st_gid
-
-
-def _drop() -> Dict[str, object]:
-    """Inside the root backend every command runs as the Decky user, as it did in Ally DSP."""
-    if os.geteuid() != 0:
-        return {}
-    uid, gid = user_ids()
-    return {} if uid == 0 else {"user": uid, "group": gid, "extra_groups": os.getgrouplist(paths.USER, gid)}
-
-
-def _userfs():
-    """Inside the root backend, file operations below the home go through allycompanion.userfs
-    (a child process as the user), so symlinks planted by the user cannot redirect them."""
-    if os.geteuid() != 0:
-        return None
-    from allycompanion import userfs  # root context only; the worker runs as the user
-    return userfs
+def _as_root() -> bool:
+    return os.geteuid() == 0
 
 
 def remove_file(path: str) -> None:
-    fs = _userfs()
-    if fs:
-        fs.remove(path)
+    if _as_root():
+        from allycompanion import userfs
+        userfs.remove(path)
         return
     try:
         os.unlink(path)
@@ -58,11 +34,20 @@ def remove_file(path: str) -> None:
         pass
 
 
+def rmtree_user(path: str) -> None:
+    """Delete a directory below the home; as the user when called from the root backend."""
+    if _as_root():
+        from allycompanion import userfs
+        userfs.rmtree(path)
+        return
+    shutil.rmtree(path, ignore_errors=True)
+
+
 def user_env(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     """Environment for the user's systemd and PipeWire session; Decky does not
     pass XDG_RUNTIME_DIR or the session bus address to plugin backends."""
-    uid = user_ids()[0] if os.geteuid() == 0 else os.getuid()
-    runtime = f"/run/user/{uid}" if os.geteuid() == 0 else (os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{uid}")
+    uid = user_ids()[0] if _as_root() else os.getuid()
+    runtime = f"/run/user/{uid}" if _as_root() else (os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{uid}")
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
         "HOME": paths.HOME,
@@ -79,19 +64,9 @@ def user_env(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
 
 def run(cmd: List[str], timeout: float = 60, env: Optional[Dict[str, str]] = None,
         cwd: Optional[str] = None, input_text: Optional[str] = None) -> Result:
-    try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
-                           env=env if env is not None else user_env(), cwd=cwd, input=input_text,
-                           **_drop())  # type: ignore[arg-type]
-        return Result(p.returncode, p.stdout, p.stderr)
-    except FileNotFoundError as e:
-        return Result(127, "", f"not found: {e}")
-    except subprocess.TimeoutExpired:
-        return Result(124, "", f"timeout after {timeout}s: {' '.join(cmd[:3])}")
-
-
-def which(name: str) -> Optional[str]:
-    return shutil.which(name, path="/usr/local/bin:/usr/bin:/bin")
+    """Always as the Decky user (inside the root backend too), as it ran in Ally DSP."""
+    return _run(cmd, timeout=timeout, as_user=True, env=env if env is not None else user_env(), cwd=cwd,
+                input_text=input_text)
 
 
 def sha256_file(path: str) -> str:
@@ -108,17 +83,17 @@ def sha256_bytes(data: bytes) -> str:
 
 def makedirs_user(path: str) -> None:
     """mkdir -p as the user, also when called from the root backend."""
-    fs = _userfs()
-    if fs:
-        fs.mkdir(path)
+    if _as_root():
+        from allycompanion import userfs
+        userfs.mkdir(path)
     else:
         os.makedirs(path, exist_ok=True)
 
 
 def atomic_write_bytes(path: str, data: bytes, mode: int = 0o644) -> None:
-    fs = _userfs()
-    if fs:
-        fs.write(path, data, mode)
+    if _as_root():
+        from allycompanion import userfs
+        userfs.write(path, data, mode)
         return
     d = os.path.dirname(path) or "."
     os.makedirs(d, exist_ok=True)
@@ -146,7 +121,26 @@ def atomic_copy(src: str, dst: str) -> None:
         atomic_write_bytes(dst, f.read())
 
 
-def read_json(path: str, default=None):
+def read_text(path: str) -> Optional[str]:
+    """A file below the home; in the root backend as the user would read it (safefs)."""
+    if _as_root():
+        from allycompanion import safefs
+        try:
+            data = safefs.read_bytes(path)
+        except OSError:
+            return None
+        return None if data is None else data.decode("utf-8", errors="replace")
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def read_json(path: str, default: Any = None) -> Any:
+    if _as_root():
+        from allycompanion import safefs
+        return safefs.read_json(path, default)
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)

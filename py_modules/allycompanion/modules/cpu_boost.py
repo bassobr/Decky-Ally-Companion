@@ -79,7 +79,7 @@ class CpuBoost(Module):
 
     async def set_override(self, values: Optional[Dict[str, Any]]) -> None:
         """Game profile {"boost": bool}; None goes back to the setting."""
-        new = None if not values or "boost" not in values else not bool(values["boost"])
+        new = None if not isinstance(values, dict) or "boost" not in values else not bool(values["boost"])
         if new == self._override:
             return
         before = self.active
@@ -198,7 +198,7 @@ class CpuBoost(Module):
         self.schedule_refresh("charger")
 
     def schedule_refresh(self, reason: str) -> None:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         self._watch_until = loop.time() + WATCH_WINDOW_S
         if self._watch_task is None or self._watch_task.done():
             self._watch_task = loop.create_task(self._watch(reason))
@@ -211,7 +211,7 @@ class CpuBoost(Module):
         self._watch_task = None
 
     async def _watch(self, reason: str) -> None:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await asyncio.sleep(DEBOUNCE_S)
         self._kick_requested = False
         await self.kick_cap(reason)

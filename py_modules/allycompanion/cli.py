@@ -7,7 +7,7 @@ import json
 import shutil
 import sys
 
-from . import cleanup, device, diagnostics, paths, settings
+from . import cleanup, device, diagnostics, paths, settings, userfs
 from .log import logger
 
 
@@ -31,7 +31,10 @@ def run_cleanup() -> int:
         logger.info("plugin is back; nothing to clean up")
         return 0
     asyncio.run(_uninstall_all())
-    shutil.rmtree(paths.RUNTIME_DIR, ignore_errors=True)
+    try:
+        userfs.rmtree(paths.RUNTIME_DIR)  # the user's directory: removed as the user
+    except OSError as e:
+        logger.warning("runtime data not removed: %s", e)
     shutil.rmtree(cleanup.STAGING, ignore_errors=True)
     logger.info("Ally Companion removed: modules reverted, runtime data deleted")
     return 0

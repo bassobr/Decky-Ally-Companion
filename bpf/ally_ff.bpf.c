@@ -16,7 +16,7 @@
  *                   triggers as well
  *
  * The flags and the target hid device are patched in by the loader
- * (py_modules/allyfix/hidbpf.py) before the object is loaded. Built by bpf/build.sh
+ * (py_modules/allycompanion/hidbpf.py) before the object is loaded. Built by bpf/build.sh
  * into bin/ally_ff.bpf.o. GPL because it calls the hid_bpf_get_data kfunc.
  */
 #include "vmlinux.h"

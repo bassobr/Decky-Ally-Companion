@@ -6,10 +6,10 @@ import { InfoField, isActive, ModuleToggle } from "../components/ModuleRow";
 import { useDebounced } from "../hooks/useDebounced";
 import { batteryPower, useLive } from "../hooks/useLive";
 import { mod, useModule } from "../store";
-import type { ModuleStatus } from "../types";
+import type { BatteryDetails, CpuBoostDetails, FanDetails, HealthSample, ModuleStatus } from "../types";
 
 
-function CpuBoost({ m }: { m: ModuleStatus }) {
+function CpuBoost({ m }: { m: ModuleStatus<CpuBoostDetails> }) {
   const d = m.details;
   const slips = d.capSlips !== false; // false: the cap survives charger events on this device
   return (
@@ -37,16 +37,17 @@ function CpuBoost({ m }: { m: ModuleStatus }) {
   );
 }
 
-function FanCurve({ m }: { m: ModuleStatus }) {
-  const curve = m.details.curve as Curve | null;
+function FanCurve({ m }: { m: ModuleStatus<FanDetails> }) {
+  const curve: Curve | null = m.details.curve ?? null;
   if (!curve) return null;
   return (
-    <CurveEditor curve={curve} applyLabel="Apply this curve" description="Both fans, for the current thermal profile."
+    <CurveEditor curve={curve} applyLabel="Apply this curve"
+      description={`Both fans, for the current thermal profile. From ${m.details.floorFromC ?? 85} °C on the curve does not go below the factory curve of this profile.`}
       onApply={(c) => void mod.action("fan", "set_curve", { curve: c })} />
   );
 }
 
-function Fan({ m }: { m: ModuleStatus }) {
+function Fan({ m }: { m: ModuleStatus<FanDetails> }) {
   const d = m.details;
   const live = useLive();
   const [edit, setEdit] = useState(false);
@@ -82,7 +83,7 @@ function Fan({ m }: { m: ModuleStatus }) {
 }
 
 /** One sample per day: battery health as a small line chart. */
-function HealthHistory({ history }: { history: { d: string; h: number; e: number }[] }) {
+function HealthHistory({ history }: { history: HealthSample[] }) {
   if (history.length === 0) return null;
   const first = history[0], last = history[history.length - 1];
   if (history.length < 2) return <InfoField label="Health history" value={`since ${first.d}: ${first.h} %`} />;
@@ -100,7 +101,7 @@ function HealthHistory({ history }: { history: { d: string; h: number; e: number
   );
 }
 
-function Battery({ m }: { m: ModuleStatus }) {
+function Battery({ m }: { m: ModuleStatus<BatteryDetails> }) {
   const d = m.details;
   const b = useLive()?.battery;
   const power = batteryPower(b);

@@ -10,6 +10,7 @@ import socket
 from typing import Awaitable, Callable, Dict, List, Optional
 
 from .log import logger
+from .module import spawn
 
 NETLINK_KOBJECT_UEVENT = 15
 GROUP_KERNEL = 1
@@ -50,7 +51,7 @@ class UeventMonitor:
     def start(self) -> None:
         if self._sock is not None:
             return
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
         sock = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, NETLINK_KOBJECT_UEVENT)
         sock.setblocking(False)
         sock.bind((0, GROUP_KERNEL))
@@ -81,9 +82,8 @@ class UeventMonitor:
             logger.warning("uevent recv failed: %s", e)
 
     def dispatch(self, event: Dict[str, str]) -> None:
-        loop = self._loop or asyncio.get_event_loop()
         for cb in list(self._subs.get(event.get("SUBSYSTEM", ""), [])):
-            loop.create_task(self._safe(cb, event))
+            spawn(self._safe(cb, event))
 
     @staticmethod
     async def _safe(cb: Callback, event: Dict[str, str]) -> None:

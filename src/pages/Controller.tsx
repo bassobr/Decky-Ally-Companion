@@ -6,7 +6,7 @@ import { InfoField, isActive, ModuleToggle } from "../components/ModuleRow";
 import { useDebounced } from "../hooks/useDebounced";
 import { restartSteam, withSteamRestart } from "../steamRestart";
 import { mod, useModule } from "../store";
-import type { ModuleStatus } from "../types";
+import type { GamepadLayoutDetails, GyroDetails, ModuleStatus, VibrationDetails } from "../types";
 
 const GYRO_MODES = [
   { data: "simple", label: "Simple", description: "Right in regular games. In Valve's Source games (Portal 2, Half-Life 2) Yaw and Roll stay swapped." },
@@ -14,7 +14,7 @@ const GYRO_MODES = [
   { data: "deck", label: "Deck emulation", description: "Right everywhere by presenting a generic controller to Steam. Layouts saved for the ROG Ally no longer apply." },
 ];
 
-function Vibration({ m }: { m: ModuleStatus }) {
+function Vibration({ m }: { m: ModuleStatus<VibrationDetails> }) {
   const d = m.details;
   const [left, setLeft] = useState<number>(d.left ?? 50);
   const [right, setRight] = useState<number>(d.right ?? 50);
@@ -57,7 +57,7 @@ function Vibration({ m }: { m: ModuleStatus }) {
   );
 }
 
-function Gyro({ m }: { m: ModuleStatus }) {
+function Gyro({ m }: { m: ModuleStatus<GyroDetails> }) {
   const d = m.details;
   const mode = d.mode ?? "simple";
   const needsRestart = (on: boolean, md: string) => (on && md === "complex") !== !!d.steamCfgPresent;
@@ -87,14 +87,14 @@ function Gyro({ m }: { m: ModuleStatus }) {
           rgOptions={GYRO_MODES.map((x) => ({ data: x.data, label: x.label }))} selectedOption={mode}
           onChange={(o) => void setMode(o.data)} />
       )}
-      {isActive(m) && m.enabled && d.targets?.length > 0 && !d.deckUhid && (
-        <Field label="InputPlumber does not use the deck-uhid target" description={`Targets: ${d.targets.join(", ")}. The fix assumes deck-uhid.`} focusable />
+      {isActive(m) && m.enabled && (d.targets?.length ?? 0) > 0 && !d.deckUhid && (
+        <Field label="InputPlumber does not use the deck-uhid target" description={`Targets: ${(d.targets ?? []).join(", ")}. The fix assumes deck-uhid.`} focusable />
       )}
     </DialogControlsSection>
   );
 }
 
-function Layout({ m }: { m: ModuleStatus }) {
+function Layout({ m }: { m: ModuleStatus<GamepadLayoutDetails> }) {
   const d = m.details;
   const toggle = async (on: boolean) => {
     if (on !== !!d.shimActive) {

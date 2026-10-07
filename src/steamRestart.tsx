@@ -32,10 +32,12 @@ export function confirm(title: string, description: string, ok: string, cancel =
   });
 }
 
-/** Ask, apply the change, then restart Steam; false when the user declined. */
-export async function withSteamRestart(text: string, change: () => Promise<unknown>): Promise<boolean> {
+/** Ask, apply the change, then restart Steam; false when the user declined or the change failed
+ * (the module's error is already on screen then, and a restart would only interrupt the game). */
+export async function withSteamRestart(text: string, change: () => Promise<{ ok: boolean } | void>): Promise<boolean> {
   if (!(await confirm("Restart Steam", text, "Apply and restart"))) return false;
-  await change();
+  const result = await change();
+  if (result && !result.ok) return false;
   await restartSteam();
   return true;
 }

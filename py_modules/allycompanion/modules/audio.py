@@ -3,34 +3,35 @@
 Everything that writes (download, venv, conversion, presets, the systemd user unit) runs in the
 worker `allydsp.worker` as the Decky user, exactly as Ally DSP ran it. This module reads state,
 watches the headphone jack (stopping and starting the unit through `systemctl --user`), keeps the
-audio settings (allydsp's settings.json, owned by the user) and switches presets per game.
+audio settings (allydsp's settings.json, owned by the user and written as the user) and switches
+presets per game.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import os
-import shutil
 import subprocess
 import threading
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from allydsp import asus_fetch, convert, dsp_runtime, hardware
 from allydsp import paths as dsp_paths
-from allydsp.util import makedirs_user
+from allydsp.util import makedirs_user, rmtree_user
 from allydsp import settings as dsp_settings
 from allydsp.constants import INPUT_NODE, PROFILES, VOICING_LABELS, VOICINGS
 from allydsp.jackwatch import JackWatcher
 from allydsp.setup_flow import STEPS
 
-from .. import paths
+from .. import paths, safefs
 from ..log import logger
-from ..module import Module, cancel_task
+from ..module import Module, cancel_task, spawn
 from ..util import _drop_kwargs, user_env
 
 LEGACY_SETTINGS = os.path.join(paths.HOME, "homebrew", "settings", "Ally DSP", "settings.json")
 LEGACY_PLUGIN = "Ally DSP"
 IMPORTED_KEYS = ("enabled", "global", "perApp", "extras")
+STATUS_AGE_S = 2.0  # one pw-dump/systemctl answer serves a whole status round
 
 
 class WorkerError(RuntimeError):
@@ -52,21 +53,33 @@ def worker_env() -> Dict[str, str]:
 
 
 class Worker:
-    """One `allydsp.worker` call: JSON lines in, progress callback, result or WorkerError."""
+    """`allydsp.worker` calls: JSON lines in, progress callback, result or WorkerError."""
 
     def __init__(self) -> None:
-        self.proc: Optional[subprocess.Popen] = None
+        self.proc: Optional[subprocess.Popen] = None  # the latest call
+        self._procs: Set[subprocess.Popen] = set()  # every call still running
         self._lock = threading.Lock()
 
     def run(self, args: List[str], progress: Optional[Callable[[Dict[str, Any]], None]] = None,
             timeout: float = 3600) -> Any:
         cmd = [dsp_paths.SYSTEM_PYTHON, "-m", "allydsp.worker", *args]
         with self._lock:
-            self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                         env=worker_env(), cwd=paths.PLUGIN_DIR, **_drop_kwargs())  # type: ignore[arg-type]
-        proc = self.proc
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                    env=worker_env(), cwd=paths.PLUGIN_DIR, **_drop_kwargs())  # type: ignore[arg-type]
+            self.proc = proc
+            self._procs.add(proc)
         result: Any = None
         error: Optional[WorkerError] = None
+        tail: List[str] = []
+
+        def drain() -> None:  # stderr is read alongside stdout: a full pipe would stall the worker
+            assert proc.stderr is not None
+            for err_line in proc.stderr:
+                tail.append(err_line.rstrip())
+                del tail[:-20]
+
+        reader = threading.Thread(target=drain, name="allydsp-worker-stderr", daemon=True)
+        reader.start()
         timer = threading.Timer(timeout, proc.kill)
         timer.start()
         try:
@@ -84,20 +97,38 @@ class Worker:
                 elif kind == "error":
                     error = WorkerError(str(msg.get("error")), bool(msg.get("cancelled")))
             proc.wait()
+            reader.join(timeout=5)
         finally:
             timer.cancel()
-            self.proc = None
+            with self._lock:
+                self._procs.discard(proc)
+                if self.proc is proc:
+                    self.proc = None
         if error:
             raise error
         if proc.returncode != 0:
-            err = (proc.stderr.read() if proc.stderr else "").strip().splitlines()[-3:]
-            raise WorkerError(f"worker {args[0]} failed (rc={proc.returncode}): {' | '.join(err)}")
+            raise WorkerError(f"worker {args[0]} failed (rc={proc.returncode}): {' | '.join(tail[-3:])}")
         return result
 
     def terminate(self) -> None:
+        """Ask the latest call to stop (the cancel button); the worker exits at once on SIGTERM."""
         p = self.proc
         if p and p.poll() is None:
             p.terminate()
+
+    def stop_all(self, grace: float = 5.0) -> None:
+        """End every running call and wait for it: no worker may keep writing presets after a stop."""
+        with self._lock:
+            procs = list(self._procs)
+        for p in procs:
+            if p.poll() is None:
+                p.terminate()
+        for p in procs:
+            try:
+                p.wait(timeout=grace)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
 
 
 class Audio(Module):
@@ -118,6 +149,7 @@ class Audio(Module):
         # flags, not task.done(): the final status is sent from inside the task
         self.setup_running = False
         self.converting = False
+        self._run_ids = {"setup": 0, "convert": 0}  # progress of an ended run is ignored
         self._codec: Optional[Dict[str, Any]] = None
         self._codec_read = False
         self._lv2: Optional[Dict[str, Any]] = None
@@ -128,7 +160,7 @@ class Audio(Module):
         return dsp_settings.load()
 
     def save_dsp(self, s: Dict[str, Any]) -> None:
-        dsp_settings.save_keeping(s, "setup")  # the worker writes "setup"
+        dsp_settings.save(s)  # the worker writes the setup state (setup.json)
 
     @property
     def enabled(self) -> bool:
@@ -162,7 +194,7 @@ class Audio(Module):
         return True, ""
 
     def is_applied(self) -> bool:
-        return self.setup_done() and (dsp_runtime.is_active() or bool(self.jack.paused))
+        return self.setup_done() and (dsp_runtime.is_active(STATUS_AGE_S) or bool(self.jack.paused))
 
     def refine(self, state: str, message: str, details: Dict[str, Any]) -> Tuple[str, str]:
         if state == "error":
@@ -177,7 +209,7 @@ class Audio(Module):
 
     def details(self) -> Dict[str, Any]:
         s = self.dsp()
-        dump = hardware.pw_dump()
+        dump = hardware.pw_dump(STATUS_AGE_S)
         if self._lv2 is None:
             self._lv2 = hardware.lv2_check()
         setup = dict(s["setup"])
@@ -190,7 +222,7 @@ class Audio(Module):
             "setup": setup,
             "enabledSetting": bool(s.get("enabled")),
             "global": s["global"], "perApp": s.get("perApp") or {}, "extras": s["extras"],
-            "dsp": {"active": dsp_runtime.is_active(), "verified": hardware.filter_node_present(dump, INPUT_NODE),
+            "dsp": {"active": dsp_runtime.is_active(STATUS_AGE_S), "verified": hardware.filter_node_present(dump, INPUT_NODE),
                     "activePreset": dsp_runtime.active_meta(), "paused": bool(self.jack.paused)},
             "headphones": hardware.headphones_active(route),
             "codec": self.codec(), "sink": hardware.find_speaker_sink(dump),
@@ -203,7 +235,9 @@ class Audio(Module):
 
     async def prepare(self, blocked_by: Optional[str]) -> None:
         """Runs also while Ally DSP is still installed: keep its settings and data in reach."""
-        makedirs_user(dsp_paths.RUNTIME_DIR)  # the worker runs as the user and writes below it
+        await asyncio.to_thread(makedirs_user, dsp_paths.RUNTIME_DIR)  # the worker writes below it as the user
+        if await asyncio.to_thread(dsp_settings.migrate_setup):
+            logger.info("[audio] setup state moved to setup.json")
         if blocked_by == LEGACY_PLUGIN or not os.path.exists(dsp_paths.SETTINGS_FILE):
             self._import_legacy_settings()
         if os.path.isdir(dsp_paths.LEGACY_RUNTIME_DIR) and (not asus_fetch.current_xml() or not convert.venv_ok()):
@@ -215,20 +249,22 @@ class Audio(Module):
                 logger.warning("[audio] import from Ally DSP failed: %s", e)
 
     def _import_legacy_settings(self) -> None:
-        try:
-            with open(LEGACY_SETTINGS, "r", encoding="utf-8") as f:
-                old = json.load(f)
-        except (OSError, ValueError):
+        old = safefs.read_json(LEGACY_SETTINGS)  # as the user would read it: no link to a root-only file
+        if not isinstance(old, dict):
             return
         s = self.dsp()
         for k in IMPORTED_KEYS:
             if k in old:
                 s[k] = old[k]
-        self.save_dsp(s)
+        self.save_dsp(s)  # checked like everything else on save
         logger.info("[audio] settings taken from Ally DSP")
 
     async def start(self) -> None:
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
+        jack = self.ctx.jack if self.ctx else None
+        self.jack.event_driven = bool(jack and jack.available)
+        if jack:
+            jack.subscribe(self._on_jack_switch)
         self.jack.start(self.should_run)
         if self.setup_done():
             await self._reconcile()
@@ -236,15 +272,23 @@ class Audio(Module):
             await self.run_setup()  # tuning already here (imported): convert without asking
 
     async def stop(self) -> None:
+        if self.ctx and self.ctx.jack:
+            self.ctx.jack.unsubscribe(self._on_jack_switch)
         self.jack.cancel()
-        self.worker.terminate()
+        await asyncio.to_thread(self.worker.stop_all)  # the running setup ends as "cancelled" by itself
         await cancel_task(self.setup_task)
         await cancel_task(self.convert_task)
+
+    async def on_resume(self, slept_s: float) -> None:
+        self.jack.kick()
+
+    async def _on_jack_switch(self, inserted: bool) -> None:
+        self.jack.kick()
 
     async def uninstall(self) -> None:
         # In-process: the cleanup runs after the plugin directory (and the worker) is gone.
         await asyncio.to_thread(dsp_runtime.remove_unit)
-        shutil.rmtree(dsp_paths.RUNTIME_DIR, ignore_errors=True)
+        await asyncio.to_thread(rmtree_user, dsp_paths.RUNTIME_DIR)
 
     async def on_app_changed(self, app_id: Optional[str]) -> None:
         if app_id != self.running_app:
@@ -260,6 +304,7 @@ class Audio(Module):
         try:
             if on:
                 await asyncio.to_thread(self.worker.run, ["enable"])
+                await self.jack.poll(self.should_run)  # fresh headphone state before the chain starts
                 await self._apply_current(force_restart=True)
             else:
                 await asyncio.to_thread(self.worker.run, ["disable"])
@@ -278,6 +323,7 @@ class Audio(Module):
             if k in data:
                 s[k] = data[k]
         self.save_dsp(s)
+        s = self.dsp()  # as saved: checked
         if not self.setup_done():
             return
         if dsp_settings.extras_signature(s["extras"]) != s["setup"].get("extrasSignature"):
@@ -373,15 +419,19 @@ class Audio(Module):
     # ------------------------------------------------------------- setup and conversion
     def _emit_threadsafe(self, payload: Dict[str, Any]) -> None:
         if self._loop and self.ctx:
-            self._loop.call_soon_threadsafe(lambda: self._loop.create_task(self.ctx.emit("audio_progress", payload)))  # type: ignore[union-attr]
+            self._loop.call_soon_threadsafe(lambda: spawn(self.ctx.emit("audio_progress", payload)))  # type: ignore[union-attr]
 
     async def run_setup(self, force: bool = False, allowUnsupported: bool = False) -> Dict[str, Any]:  # noqa: N803
         if self.busy():
             return {"started": False, "reason": "already running"}
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
         self.setup_last = None
+        self._run_ids["setup"] += 1
+        run_id = self._run_ids["setup"]
 
         def progress(ev: Dict[str, Any]) -> None:
+            if run_id != self._run_ids["setup"] or not self.setup_running:
+                return  # a stopped run still flushing its output
             self.setup_last = ev
             self._emit_threadsafe({"kind": "setup", **ev})
 
@@ -389,6 +439,8 @@ class Audio(Module):
 
         async def runner() -> None:
             total = len(STEPS)
+            ev: Dict[str, Any] = {"step": "finished", "status": "cancelled", "message": "Setup stopped",
+                                  "percent": 0, "index": 0, "total": total}
             try:
                 await asyncio.to_thread(self.worker.run, args, progress)
                 ev = {"step": "finished", "status": "done", "message": "Setup complete", "percent": 100, "index": total, "total": total}
@@ -400,9 +452,10 @@ class Audio(Module):
                       "percent": last.get("percent", 0), "index": last.get("index", 0), "total": total}
                 if not e.cancelled:
                     logger.error("[audio] setup failed: %s", e)
-            self.setup_running = False
-            self.setup_last = ev
-            self._emit_threadsafe({"kind": "setup", **ev})
+            finally:  # also when the task is cancelled (stop, a backup restore): never stuck "running"
+                self.setup_running = False
+                self.setup_last = ev
+                self._emit_threadsafe({"kind": "setup", **ev})
             if ev["status"] == "done":
                 s = self.dsp()
                 if dsp_settings.extras_signature(s["extras"]) != s["setup"].get("extrasSignature"):
@@ -412,7 +465,7 @@ class Audio(Module):
             await self.notify()
 
         self.setup_running = True
-        self.setup_task = asyncio.get_event_loop().create_task(runner())
+        self.setup_task = self._loop.create_task(runner())
         return {"started": True}
 
     async def cancel_setup(self) -> None:
@@ -421,13 +474,18 @@ class Audio(Module):
     def _start_reconvert(self) -> None:
         if self.converting:
             return
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
+        self._run_ids["convert"] += 1
+        run_id = self._run_ids["convert"]
 
         def progress(ev: Dict[str, Any]) -> None:
+            if run_id != self._run_ids["convert"] or not self.converting:
+                return
             self.convert_last = {"percent": ev.get("percent", 0), "message": ev.get("message", ""), "status": "running"}
             self._emit_threadsafe({"kind": "convert", **self.convert_last})
 
         async def runner() -> None:
+            self.convert_last = {"percent": 0, "message": "Stopped", "status": "cancelled"}
             try:
                 while True:  # extras may change again while a conversion runs
                     sig = dsp_settings.extras_signature(self.dsp()["extras"])
@@ -435,18 +493,20 @@ class Audio(Module):
                     if dsp_settings.extras_signature(self.dsp()["extras"]) == sig:
                         break
                 self.convert_last = {"percent": 100, "message": "Presets regenerated", "status": "done"}
-                self.converting = False
-                if self.should_run():
-                    await self._apply_current(force_restart=True)
             except Exception as e:  # noqa: BLE001
                 logger.error("[audio] reconversion failed: %s", e)
                 self.convert_last = {"percent": 0, "message": str(e), "status": "error"}
-            self.converting = False
-            self._emit_threadsafe({"kind": "convert", **self.convert_last})
+            finally:  # also when cancelled
+                self.converting = False
+                if self.convert_last.get("status") == "running":
+                    self.convert_last = {"percent": 0, "message": "Stopped", "status": "cancelled"}
+                self._emit_threadsafe({"kind": "convert", **self.convert_last})
+            if self.convert_last["status"] == "done" and self.should_run():
+                await self._apply_current(force_restart=True)
             await self.notify()
 
         self.converting = True
-        self.convert_task = asyncio.get_event_loop().create_task(runner())
+        self.convert_task = self._loop.create_task(runner())
 
     async def _on_jack(self, state: Dict[str, Any]) -> None:
         await self.notify()

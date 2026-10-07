@@ -2,7 +2,8 @@ import { addEventListener, removeEventListener, toaster } from "@decky/api";
 import { openPage } from "./navigation";
 import { useEffect, useState } from "react";
 import { getState, moduleAction, setModuleEnabled, setModuleOptions } from "./backend";
-import type { ModuleResult, ModuleStatus, PluginState, UpdateInfo } from "./types";
+import type { AudioDetails, ConvertEvent, ModuleDetails, ModuleId, ModuleResult, ModuleStatus, ModuleStatuses, PluginState, SetupEvent,
+  UpdateInfo } from "./types";
 
 /** Plugin state shared by the panel, the fullscreen view and the Steam-side patches. */
 let cache: PluginState | null = null;
@@ -24,7 +25,7 @@ export const store = {
   },
   patchModule(m: ModuleStatus) {
     if (!cache) return;
-    cache = { ...cache, modules: { ...cache.modules, [m.id]: m } };
+    cache = { ...cache, modules: { ...cache.modules, [m.id]: m } as ModuleStatuses };
     notify();
   },
   subscribe(l: () => void): () => void {
@@ -34,23 +35,27 @@ export const store = {
 };
 
 const onModule = (m: ModuleStatus) => store.patchModule(m);
-const onModules = (all: Record<string, ModuleStatus>) => {
+const onModules = (all: ModuleStatuses) => {
   if (!cache) return;
   cache = { ...cache, modules: all };
   notify();
 };
+type AudioProgress = ({ kind: "setup" } & SetupEvent) | ({ kind: "convert" } & ConvertEvent);
+
 /** Setup and reconversion progress of the audio module, merged into its details. */
-const onAudioProgress = (ev: { kind: "setup" | "convert"; status?: string; [k: string]: any }) => {
+const onAudioProgress = (ev: AudioProgress) => {
   const m = cache?.modules.audio;
   if (!m) return;
-  const { kind, ...rest } = ev;
-  const setup = { ...(m.details.setup ?? {}) };
-  // setup steps report done/skipped on the way; only the "finished" event ends the run
-  const finished = kind === "setup" ? rest.step === "finished" : rest.status !== "running";
-  if (kind === "setup") {
+  const setup = { ...(m.details.setup ?? {}) } as AudioDetails["setup"];
+  let finished: boolean;
+  if (ev.kind === "setup") {
+    const { kind: _kind, ...rest } = ev;
+    finished = rest.step === "finished"; // setup steps report done/skipped on the way
     setup.last = rest;
     setup.inProgress = !finished;
   } else {
+    const { kind: _kind, ...rest } = ev;
+    finished = rest.status !== "running";
     setup.convertLast = rest;
     setup.converting = !finished;
   }
@@ -75,9 +80,9 @@ const onUpdate = (u: UpdateInfo) => {
 
 export function connectEvents(): void {
   addEventListener<[ModuleStatus]>("module_status", onModule);
-  addEventListener<[Record<string, ModuleStatus>]>("modules", onModules);
+  addEventListener<[ModuleStatuses]>("modules", onModules);
   addEventListener<[UpdateInfo]>("update_state", onUpdate);
-  addEventListener<[any]>("audio_progress", onAudioProgress);
+  addEventListener<[AudioProgress]>("audio_progress", onAudioProgress);
   addEventListener<[any]>("news_new", onNews);
   void store.refresh();
 }
@@ -96,8 +101,8 @@ export function usePluginState() {
   return { state: cache, error, refresh: store.refresh };
 }
 
-export function useModule(id: string): ModuleStatus | undefined {
-  return usePluginState().state?.modules[id];
+export function useModule<K extends ModuleId>(id: K): ModuleStatus<ModuleDetails[K]> | undefined {
+  return usePluginState().state?.modules[id] as ModuleStatus<ModuleDetails[K]> | undefined;
 }
 
 function handle(r: ModuleResult): ModuleResult {

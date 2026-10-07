@@ -1,6 +1,9 @@
-# Toolchain for bpf/build.sh: clang + libbpf headers + bpftool (for vmlinux.h).
-# bookworm's bpftool is too old for struct_ops; trixie's works.
-FROM docker.io/library/debian:trixie-slim
-RUN apt-get update \
+# Toolchain for bpf/build.sh: clang + libbpf headers + bpftool (for vmlinux.h). Pinned like
+# shim/Containerfile; the object still depends on the host kernel's BTF, so it is not reproduced in CI.
+FROM docker.io/library/debian:trixie-slim@sha256:918311b7b6c4c6f68b232ba516584925f6c78ad82b6fd534b98979df6438e483
+ARG SNAPSHOT=20261007T000000Z
+RUN rm -f /etc/apt/sources.list.d/debian.sources \
+ && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${SNAPSHOT} trixie main" > /etc/apt/sources.list \
+ && apt-get update \
  && apt-get install -y --no-install-recommends clang llvm libbpf-dev bpftool \
  && rm -rf /var/lib/apt/lists/*

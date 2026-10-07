@@ -67,6 +67,7 @@ export function Lighting() {
   if (!m) return null;
   const on = m.enabled && isActive(m);
   const mode = d.mode ?? "static";
+  const color = d.color ?? "#ffffff", color2 = d.color2 ?? "#000000";
   return (
     <DialogBody>
       <DialogControlsSection>
@@ -78,14 +79,14 @@ export function Lighting() {
             <DropdownItem label="Mode" rgOptions={MODES} selectedOption={mode}
               onChange={(o) => void mod.options("lighting", { mode: o.data })} />
             {["static", "breathing", "cycle"].includes(mode) && (
-              <ButtonItem layout="inline" label="Colour" onClick={() => pickColor("Colour", d.color, (c) => void mod.options("lighting", { color: c }))}>
-                <Swatch color={d.color} />
+              <ButtonItem layout="inline" label="Colour" onClick={() => pickColor("Colour", color, (c) => void mod.options("lighting", { color: c }))}>
+                <Swatch color={color} />
               </ButtonItem>
             )}
             {mode === "breathing" && (
               <ButtonItem layout="inline" label="Second colour" description="Black: fade to dark"
-                onClick={() => pickColor("Second colour", d.color2, (c) => void mod.options("lighting", { color2: c }))}>
-                <Swatch color={d.color2} />
+                onClick={() => pickColor("Second colour", color2, (c) => void mod.options("lighting", { color2: c }))}>
+                <Swatch color={color2} />
               </ButtonItem>
             )}
             {["breathing", "cycle", "rainbow"].includes(mode) && (

@@ -10,14 +10,24 @@
 # Test stand (shim/test_*.c): a fake steamclient with the same 16-byte constant, pulled
 # in as DT_NEEDED by a wrapper that a binary named `steam` dlopen()s — the same shape
 # as the real client, where steamclient.so never shows up in dlopen() by name.
+#
+# The container is pinned (shim/Containerfile), so the build is reproducible: CI runs this with
+# CONTAINER_ENGINE=docker and fails when the binaries differ from the committed ones.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-IMG=ally-fix-shim
-podman image exists "$IMG" || podman build -t "$IMG" -f shim/Containerfile shim
+ENGINE="${CONTAINER_ENGINE:-podman}"
+IMG=ally-companion-shim:$(sha256sum shim/Containerfile | cut -c1-12)  # a changed Containerfile builds anew
+if [ "$ENGINE" = docker ]; then
+  docker image inspect "$IMG" >/dev/null 2>&1 || docker build -t "$IMG" -f shim/Containerfile shim
+  AS_USER=(--user "$(id -u):$(id -g)")
+else
+  podman image exists "$IMG" || podman build -t "$IMG" -f shim/Containerfile shim
+  AS_USER=(--userns=keep-id)
+fi
 mkdir -p bin
-podman run --rm --userns=keep-id -w /w -v "$PWD:/w" "$IMG" bash -ec '
+"$ENGINE" run --rm "${AS_USER[@]}" -w /w -v "$PWD:/w" "$IMG" bash -ec '
   gcc -m32 -O2 -Wall -Wextra -fPIC -shared -s -pthread -o bin/liballycaps.so shim/allycaps.c
-  # 64-bit twin for the $LIB scheme (see fixes/gamepad_layout.py): same source, never
+  # 64-bit twin for the $LIB scheme (see modules/gamepad_layout.py): same source, never
   # active — no 64-bit process is called `steam`.
   gcc -m64 -O2 -Wall -Wextra -fPIC -shared -s -pthread -o bin/liballycaps64.so shim/allycaps.c
   t=$(mktemp -d)

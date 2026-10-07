@@ -1,4 +1,4 @@
-"""Subprocess, atomic file and JSON helpers, and the root/user boundary.
+"""Subprocess and JSON helpers, and the root/user boundary.
 
 The backend runs as root (plugin flag "root"). Anything that belongs to the user session
 (systemctl --user, PipeWire, the session bus with steamos-manager's public API) must run
@@ -91,37 +91,10 @@ def read_text(path: str, default: Optional[str] = None) -> Optional[str]:
         return default
 
 
-def atomic_write_bytes(path: str, data: bytes, mode: int = 0o644) -> None:
-    d = os.path.dirname(path) or "."
-    os.makedirs(d, exist_ok=True)
-    tmp = os.path.join(d, f".tmp-{os.getpid()}-{os.urandom(8).hex()}")
-    # O_EXCL|O_NOFOLLOW and fchmod: the directory may belong to the user, who must not be able to
-    # point the temporary file elsewhere
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-            os.fchmod(f.fileno(), mode)
-        os.replace(tmp, path)
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-
-
-def atomic_write_text(path: str, text: str, mode: int = 0o644) -> None:
-    atomic_write_bytes(path, text.encode("utf-8"), mode)
-
-
 def read_json(path: str, default=None):
+    """JSON from a system path (the plugin directory, /etc); files below the home go through safefs."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
         return default
-
-
-def write_json(path: str, obj) -> None:
-    atomic_write_text(path, json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False) + "\n")

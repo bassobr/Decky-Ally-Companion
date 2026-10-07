@@ -11,7 +11,9 @@ health history keeps one sample per day (full and design energy), read from sysf
 from __future__ import annotations
 
 import asyncio
+import math
 import os
+import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -26,6 +28,9 @@ CHARGE_IFACE = f"{STEAMOS_MANAGER_BUS}.BatteryChargeLimit1"
 HISTORY_CHECK_S = 3600
 HISTORY_MAX = 400
 FULL_ONCE_POLL_S = 120
+MIN_LIMIT = 10  # sanity bound for stored values
+DEFAULT_MIN_LIMIT = 50  # when steamos-manager suggests none
+_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def armoury(name: str) -> Optional[str]:
@@ -62,6 +67,22 @@ def history_sample(info: Dict[str, Any], day: str) -> Optional[Dict[str, Any]]:
     return {"d": day, "h": info["healthPct"], "e": info["energyFullWh"], "c": info.get("cycles")}
 
 
+def _number(v: Any) -> Optional[float]:
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else None
+
+
+def clean_history(history: Any) -> List[Dict[str, Any]]:
+    """Samples as history_sample writes them; anything else is dropped."""
+    out = []
+    for s in history if isinstance(history, list) else []:
+        if not isinstance(s, dict) or not isinstance(s.get("d"), str) or not _DAY.match(s["d"]) or _number(s.get("h")) is None:
+            continue
+        c = s.get("c")
+        out.append({"d": s["d"], "h": _number(s["h"]), "e": _number(s.get("e")),
+                    "c": c if isinstance(c, int) and not isinstance(c, bool) and c >= 0 else None})
+    return out[-HISTORY_MAX:]
+
+
 def add_sample(history: List[Dict[str, Any]], sample: Optional[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
     """The history with today's sample appended, or None when today is already in it."""
     if sample is None or (history and history[-1].get("d") == sample["d"]):
@@ -78,6 +99,12 @@ class Battery(Module):
         super().__init__()
         self._history_task: Optional[asyncio.Task] = None
         self._full_task: Optional[asyncio.Task] = None
+
+    def normalize(self, cfg: Dict[str, Any]) -> None:
+        full = cfg.get("fullOnce")
+        ok = isinstance(full, int) and not isinstance(full, bool) and MIN_LIMIT <= full < 100
+        cfg["fullOnce"] = full if ok else None
+        cfg["history"] = clean_history(cfg.get("history"))
 
     def actions(self):
         return {"set_charge_limit": self.set_charge_limit, "set_mcu_powersave": self.set_mcu_powersave,
@@ -107,7 +134,7 @@ class Battery(Module):
         }
 
     async def start(self) -> None:
-        self._history_task = asyncio.get_event_loop().create_task(self._history_loop())
+        self._history_task = asyncio.get_running_loop().create_task(self._history_loop())
         if self.cfg.get("fullOnce") is not None:
             self._watch_full()
 
@@ -148,7 +175,7 @@ class Battery(Module):
 
     def _watch_full(self) -> None:
         if self._full_task is None or self._full_task.done():
-            self._full_task = asyncio.get_event_loop().create_task(self._full_loop())
+            self._full_task = asyncio.get_running_loop().create_task(self._full_loop())
 
     async def _full_loop(self) -> None:
         while self.cfg.get("fullOnce") is not None:
@@ -174,9 +201,18 @@ class Battery(Module):
             self.update_cfg({"fullOnce": None})
         await self._write_limit(level)
 
+    @staticmethod
+    def _min_limit() -> int:
+        v = dbus.try_get_property(STEAMOS_MANAGER_BUS, STEAMOS_MANAGER_PATH, CHARGE_IFACE, "SuggestedMinimumLimit",
+                                  user_bus=True)
+        return v if isinstance(v, int) and 0 < v < 100 else DEFAULT_MIN_LIMIT
+
     async def _write_limit(self, level: Optional[int]) -> None:
-        """level None or 100: no limit."""
-        value = -1 if level is None or int(level) >= 100 else max(10, int(level))
+        """level None or 100: no limit; never below steamos-manager's suggested minimum."""
+        if level is None or int(level) >= 100:
+            value = -1
+        else:
+            value = max(await asyncio.to_thread(self._min_limit), int(level))
         await asyncio.to_thread(dbus.set_property, STEAMOS_MANAGER_BUS, STEAMOS_MANAGER_PATH, CHARGE_IFACE,
                                 "MaxChargeLevel", "i", value, True)
         logger.info("[battery] charge limit %s", "off" if value < 0 else f"{value}%")

@@ -1,4 +1,8 @@
-"""Backups of all settings as JSON files in ~/Documents/Ally Companion, readable and restorable."""
+"""Backups of all settings as JSON files in ~/Documents/Ally Companion, readable and restorable.
+
+The directory is the user's (and may be a link to a card), so it is listed, read and written by a
+child process running as the user; a backup is as untrusted as settings.json.
+"""
 from __future__ import annotations
 
 import json
@@ -15,6 +19,7 @@ TRANSIENT = {"news": ("items", "fetchedAt", "lastAttempt", "error", "channel", "
              "battery": ("fullOnce", "history"),
              "profiles": ("perfBaseline",)}
 NAME = re.compile(r"^ally-companion-\d{8}-\d{6}\.json$")
+MAX_SIZE = 1 << 20
 
 
 def backup_dir() -> str:
@@ -35,17 +40,21 @@ def write(data: Dict[str, Any]) -> str:
 
 def listing() -> List[Dict[str, Any]]:
     try:
-        names = sorted((n for n in os.listdir(backup_dir()) if NAME.match(n)), reverse=True)
+        files = userfs.listdir(backup_dir())
     except OSError:
         return []
-    return [{"name": n, "size": os.path.getsize(os.path.join(backup_dir(), n))} for n in names]
+    return [{"name": n, "size": size} for n, size in sorted(files, reverse=True) if NAME.match(n)]
 
 
 def read(name: str) -> Dict[str, Any]:
-    if not NAME.match(name or ""):
+    if not isinstance(name, str) or not NAME.match(name):
         raise ValueError("not a backup file name")
-    with open(os.path.join(backup_dir(), name), "r", encoding="utf-8") as f:
-        data = json.load(f)
+    raw = userfs.read(os.path.join(backup_dir(), name), MAX_SIZE)
+    if raw is None:
+        raise FileNotFoundError(f"backup {name} not found")
+    data = json.loads(raw.decode("utf-8"))
     if not isinstance(data, dict) or data.get("plugin") != PLUGIN_NAME or not isinstance(data.get("modules"), dict):
         raise ValueError("not an Ally Companion backup")
+    if not isinstance(data.get("audio"), dict):
+        data["audio"] = {}
     return data

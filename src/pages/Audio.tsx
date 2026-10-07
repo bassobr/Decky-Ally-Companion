@@ -3,8 +3,11 @@ import { useEffect, useState } from "react";
 import { appName } from "../appWatcher";
 import { InfoField, isActive, ModuleToggle } from "../components/ModuleRow";
 import { useDebounced } from "../hooks/useDebounced";
+import { confirm } from "../steamRestart";
 import { mod, useModule } from "../store";
-import type { ModuleStatus } from "../types";
+import type { AudioDetails, ModuleStatus, Option, PerAppPreset, PresetChoice } from "../types";
+
+type Setup = AudioDetails["setup"];
 
 const STEP_LABELS: Record<string, string> = {
   hardware: "Check hardware",
@@ -16,17 +19,16 @@ const STEP_LABELS: Record<string, string> = {
   activate: "Activate",
 };
 
-type Option = { id: string; label: string };
 const labelOf = (list: Option[], id?: string) => list.find((x) => x.id === id)?.label ?? id ?? "–";
 
-export function presetLabel(d: Record<string, any>, p?: { profile?: string; voicing?: string } | null): string {
+export function presetLabel(d: Partial<AudioDetails>, p?: { profile?: string; voicing?: string } | null): string {
   if (!p?.profile) return "–";
   return `${labelOf(d.profiles ?? [], p.profile)} · ${labelOf(d.voicings ?? [], p.voicing)}`;
 }
 
-function Setup({ m }: { m: ModuleStatus }) {
+function Setup({ m }: { m: ModuleStatus<AudioDetails> }) {
   const d = m.details;
-  const s = d.setup ?? {};
+  const s: Partial<Setup> = d.setup ?? {};
   const last = s.last;
   const unsupported = d.codec && !d.codec.supported;
   return (
@@ -53,13 +55,13 @@ function Setup({ m }: { m: ModuleStatus }) {
   );
 }
 
-function Presets({ m }: { m: ModuleStatus }) {
+function Presets({ m }: { m: ModuleStatus<AudioDetails> }) {
   const d = m.details;
   const profiles = (d.profiles ?? []).map((p: Option) => ({ data: p.id, label: p.label }));
   const voicings = (d.voicings ?? []).map((v: Option) => ({ data: v.id, label: v.label }));
-  const appId: string | null = d.runningApp;
+  const appId: string | null = d.runningApp ?? null;
   const per = appId ? d.perApp?.[appId] : undefined;
-  const g = d.global ?? {};
+  const g: Partial<PresetChoice> = d.global ?? {};
   const setPer = (entry: unknown) => void mod.action("audio", "set_per_app", { appId, entry });
   return (
     <>
@@ -75,7 +77,8 @@ function Presets({ m }: { m: ModuleStatus }) {
         {appId ? (
           <>
             <ToggleField label="Own preset for this game" checked={!!per}
-              onChange={(on) => setPer(on ? { profile: d.resolved.profile, voicing: d.resolved.voicing, enabled: true, name: appName(appId) } : null)} />
+              onChange={(on) => setPer(on ? { profile: d.resolved?.profile ?? g.profile, voicing: d.resolved?.voicing ?? g.voicing,
+                enabled: true, name: appName(appId) } : null)} />
             {per && (
               <>
                 <DropdownItem label="Profile" rgOptions={profiles} selectedOption={per.profile} onChange={(o) => setPer({ ...per, profile: o.data })} />
@@ -86,9 +89,13 @@ function Presets({ m }: { m: ModuleStatus }) {
         ) : (
           <Field focusable label="No game is running" description="Per-game presets are set here or in the Quick Access panel while a game runs." />
         )}
-        {Object.entries(d.perApp ?? {}).filter(([id]) => id !== appId).map(([id, e]: [string, any]) => (
+        {Object.entries(d.perApp ?? {}).filter(([id]) => id !== appId).map(([id, e]: [string, PerAppPreset]) => (
           <ButtonItem key={id} layout="inline" label={`${e.name || id}: ${presetLabel(d, e)}`}
-            onClick={() => void mod.action("audio", "set_per_app", { appId: id, entry: null })}>
+            onClick={() => void (async () => {
+              if (await confirm("Remove game preset", `Remove the sound preset for ${e.name || id}?`, "Remove")) {
+                await mod.action("audio", "set_per_app", { appId: id, entry: null });
+              }
+            })()}>
             Remove
           </ButtonItem>
         ))}
@@ -97,10 +104,10 @@ function Presets({ m }: { m: ModuleStatus }) {
   );
 }
 
-function Extras({ m }: { m: ModuleStatus }) {
+function Extras({ m }: { m: ModuleStatus<AudioDetails> }) {
   const d = m.details;
-  const x = d.extras ?? {};
-  const s = d.setup ?? {};
+  const x: Partial<AudioDetails["extras"]> = d.extras ?? {};
+  const s: Partial<Setup> = d.setup ?? {};
   const busy = !!(s.inProgress || s.converting);
   const [gain, setGain] = useState<number>(x.preGainDb ?? 0);
   useEffect(() => setGain(x.preGainDb ?? 0), [x.preGainDb]);

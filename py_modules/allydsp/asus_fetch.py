@@ -16,6 +16,8 @@ from .log import logger
 from .util import read_json, run, sha256_file, user_env, write_json
 
 SIG_7Z = b"7z\xbc\xaf\x27\x1c"
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+MAX_PACKAGE = 256 << 20
 Progress = Optional[Callable[[float, str], None]]
 
 
@@ -110,9 +112,12 @@ def resolve_package(ssid: str, use_network: bool = True) -> Dict[str, Any]:
         data = _curl_json(dev["asus_api"])
         if data is not None:
             pick = parse_api(data, load_fallback()["asus_cdn"])
-            if pick:
+            # a package without a published checksum is never downloaded: the pin is used instead
+            if pick and SHA256.match(pick.get("sha256") or "") and str(pick.get("url", "")).startswith("https://"):
                 pick["source"] = "asus-api"
                 return pick
+            if pick:
+                logger.warning("ASUS lists %s without a SHA-256; using the pinned package", pick.get("version"))
     pkg = pinned_package(ssid)
     if not pkg:
         raise RuntimeError(f"No package source available for {dev.get('name')} (API unreachable and no fallback pinned)")
@@ -127,29 +132,40 @@ def head_size(url: str) -> Optional[int]:
 
 def download(url: str, dest: str, expected_sha256: Optional[str] = None, expected_size: Optional[int] = None,
              progress: Progress = None, timeout: int = 1800) -> str:
-    """Resumable curl download with size-based progress and SHA-256 check. Returns the digest."""
+    """Resumable curl download with size-based progress and SHA-256 check. Returns the digest.
+    Without an expected SHA-256 nothing is downloaded."""
+    if not SHA256.match((expected_sha256 or "").lower()):
+        raise RuntimeError("no SHA-256 published for this package; not downloading it")
+    if not url.startswith("https://"):
+        raise RuntimeError(f"refusing a download that is not HTTPS: {url}")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     total = expected_size or head_size(url)
-    cmd = ["curl", "-fL", "--retry", "3", "--retry-delay", "2", "--connect-timeout", "15",
-           "--max-time", str(timeout), "-A", USER_AGENT, "-C", "-", "-o", dest, url]
+    # -sS: no progress meter on stderr, which is read only after curl exits (a full pipe would stall it)
+    cmd = ["curl", "-fsSL", "--retry", "3", "--retry-delay", "2", "--connect-timeout", "15",
+           "--max-time", str(timeout), "--max-filesize", str(MAX_PACKAGE), "-A", USER_AGENT, "-C", "-", "-o", dest, url]
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, env=user_env())
     last = -1.0
-    while proc.poll() is None:
-        time.sleep(0.5)
-        if progress and total:
-            try:
-                done = os.path.getsize(dest)
-            except OSError:
-                done = 0
-            pct = min(99.0, 100.0 * done / total)
-            if pct - last >= 1.0:
-                last = pct
-                progress(pct, f"{done / 1e6:.1f} / {total / 1e6:.1f} MB")
+    try:
+        while proc.poll() is None:
+            time.sleep(0.5)
+            if progress and total:
+                try:
+                    done = os.path.getsize(dest)
+                except OSError:
+                    done = 0
+                pct = min(99.0, 100.0 * done / total)
+                if pct - last >= 1.0:
+                    last = pct
+                    progress(pct, f"{done / 1e6:.1f} / {total / 1e6:.1f} MB")
+    except BaseException:  # cancelled (SIGTERM, cancel check): curl must not outlive the worker
+        proc.kill()
+        proc.wait()
+        raise
     if proc.returncode != 0:
         err = (proc.stderr.read() if proc.stderr else "").strip()[-300:]
         raise RuntimeError(f"Download failed (curl rc={proc.returncode}): {err}")
     digest = sha256_file(dest)
-    if expected_sha256 and digest.lower() != expected_sha256.lower():
+    if digest.lower() != (expected_sha256 or "").lower():
         try:
             os.unlink(dest)
         except OSError:
@@ -183,7 +199,7 @@ def slice_payload(exe: str, payload: str, offset: int) -> None:
 
 
 def list_7z(payload: str) -> List[str]:
-    r = run(["7z", "l", "-slt", "-ba", payload], timeout=120)
+    r = run(["7z", "l", "-slt", "-ba", "--", payload], timeout=120)
     if not r.ok:
         raise RuntimeError(f"7z listing failed rc={r.rc}: {r.err.strip()[:200]}")
     return re.findall(r"^Path = (.+)$", r.out, re.M)
@@ -250,7 +266,7 @@ def extract_dax3(exe_path: str, codec: Dict[str, Any], progress: Progress = None
     targets = [sel["xml"]] + ([sel["inf"]] if sel["inf"] else [])
     if progress:
         progress(50, "extracting")
-    r = run(["7z", "e", "-y", f"-o{work}", payload] + targets, timeout=300)
+    r = run(["7z", "e", "-y", f"-o{work}", "--", payload] + targets, timeout=300)  # "--": names are not switches
     if not r.ok:
         raise RuntimeError(f"7z extraction failed rc={r.rc}: {r.err.strip()[:200]}")
     xml_name = os.path.basename(sel["xml"])

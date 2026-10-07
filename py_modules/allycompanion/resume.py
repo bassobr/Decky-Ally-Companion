@@ -28,7 +28,7 @@ class ResumeDetector:
 
     def start(self) -> None:
         if self._task is None:
-            self._task = asyncio.get_event_loop().create_task(self._run())
+            self._task = asyncio.get_running_loop().create_task(self._run())
 
     def stop(self) -> None:
         if self._task is not None:

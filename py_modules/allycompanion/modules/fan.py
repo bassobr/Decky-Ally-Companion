@@ -12,6 +12,11 @@ set in the UI replaces the remembered curve of the current profile.
 SteamOS 3.9.2 works around the firmware bug after sleep itself. From that version on the pinning
 stays off whatever the setting says (the setting is kept for older versions); a game profile's
 curve is still pinned while the game runs.
+
+No curve goes below the factory curve of the active thermal profile from 85 °C on (custom, game
+and remembered curves alike): below that a curve may be as quiet as wanted, but a curve with the
+fans off at any temperature cannot reach the EC, whether it comes from the UI, settings.json or a
+backup. The factory curve is read from the EC (pwm_enable=3) and kept in memory only.
 """
 from __future__ import annotations
 
@@ -35,6 +40,8 @@ PWM_MAX = 255
 FIXED_IN_STEAMOS = (3, 9, 2)
 NOT_NEEDED = "Not needed since SteamOS 3.9.2, which fixes the fan speed after sleep itself"
 TEMP_RANGE = (20, 110)
+FLOOR_FROM_C = 85
+FLOOR_TEMPS = (85, 90, 95, 100, 105, 110)
 
 Curve = Dict[str, List[int]]  # {"temps": [...], "pwm1": [...], "pwm2": [...]}
 
@@ -59,12 +66,39 @@ def sanitize(curve: Any) -> Curve:
         raise ValueError("curve must be an object")
     out: Curve = {}
     for key, (lo, hi) in (("temps", TEMP_RANGE), ("pwm1", (0, PWM_MAX)), ("pwm2", (0, PWM_MAX))):
-        vals = [max(lo, min(hi, int(v))) for v in list(curve.get(key, []))]
+        raw = curve.get(key)
+        if not isinstance(raw, list) or any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in raw):
+            raise ValueError(f"{key} needs {POINTS} numbers")
+        vals = [max(lo, min(hi, int(v))) for v in raw]
         if len(vals) != POINTS:
             raise ValueError(f"{key} needs {POINTS} points")
         for i in range(1, POINTS):
             vals[i] = max(vals[i], vals[i - 1])
         out[key] = vals
+    if out["temps"][0] > FLOOR_FROM_C:
+        raise ValueError(f"the curve has to start at {FLOOR_FROM_C} °C or below")
+    return out
+
+
+def duty_at(curve: Curve, fan: str, temp: int) -> int:
+    """Duty the curve gives at `temp`: each point holds until the next one, the last one beyond."""
+    duty = 0
+    for t, d in zip(curve["temps"], curve[fan]):
+        if t <= temp:
+            duty = d
+    return duty
+
+
+def apply_floor(curve: Curve, factory: Curve) -> Curve:
+    """`curve`, raised where it would give less than the factory curve from FLOOR_FROM_C on."""
+    out: Curve = {k: list(v) for k, v in curve.items()}
+    for fan in FANS:
+        for temp in FLOOR_TEMPS:
+            need = duty_at(factory, fan, temp)
+            below = [i for i, t in enumerate(out["temps"]) if t <= temp]
+            if below and out[fan][below[-1]] < need:
+                for j in range(below[-1], POINTS):
+                    out[fan][j] = max(out[fan][j], need)
     return out
 
 
@@ -79,6 +113,18 @@ class Fan(Module):
         self._task: Optional[asyncio.Task] = None
         self._last_event = ""
         self._override: Optional[Curve] = None  # game profile curve, pinned while the game runs
+        self._factory: Dict[str, Curve] = {}  # per thermal profile, read from the EC; never from a file
+
+    def normalize(self, cfg: Dict[str, Any]) -> None:
+        curves: Dict[str, Curve] = {}
+        raw = cfg.get("curves")
+        for profile, curve in (raw.items() if isinstance(raw, dict) else []):
+            if isinstance(profile, str) and len(profile) <= 32:
+                try:
+                    curves[profile] = sanitize(curve)
+                except (TypeError, ValueError):
+                    pass
+        cfg["curves"] = curves
 
     @property
     def pinning(self) -> bool:
@@ -113,7 +159,7 @@ class Fan(Module):
 
     async def set_override(self, values: Optional[Dict[str, Any]]) -> None:
         """Game profile {"curve": {...}}; None goes back to the pinned or firmware curve."""
-        new = sanitize(values["curve"]) if values and values.get("curve") else None
+        new = sanitize(values["curve"]) if isinstance(values, dict) and values.get("curve") else None
         if new == self._override:
             return
         self._override = new
@@ -191,14 +237,28 @@ class Fan(Module):
         curves[profile] = curve
         self.update_cfg({"curves": curves})
 
+    def _capture_factory(self, profile: str) -> Curve:
+        """The EC's factory curve of the active thermal profile; pwm_enable=3 loads it."""
+        self._write_enable(3)
+        curve = self.read_curve()
+        if not valid(curve):
+            raise OSError("factory fan curve unreadable")
+        self._factory[profile] = curve
+        return curve
+
+    def _floored(self, curve: Curve, profile: str) -> Curve:
+        return apply_floor(curve, self._factory.get(profile) or self._capture_factory(profile))
+
     def _pin(self, reason: str, force_write: bool = False) -> str:
         """Ensure the current profile's curve is loaded and enabled; returns what was done."""
         profile = self.profile()
         en1, en2 = self.enable_state()
         curve = self.read_curve()
         if self._override is not None:
-            if force_write or en1 != 1 or en2 != 1 or curve != self._override:
-                self._write_curve(self._override)
+            captured = profile not in self._factory  # capturing resets the EC's curve
+            target = self._floored(self._override, profile)
+            if captured or force_write or en1 != 1 or en2 != 1 or curve != target:
+                self._write_curve(target)
                 self._write_enable(1)
                 return f"pinned the game's curve ({reason})"
             return ""
@@ -219,12 +279,13 @@ class Fan(Module):
             except (TypeError, ValueError):
                 snap = None
         if not valid(snap):
-            self._write_enable(3)  # loads the factory curve of the current profile
-            curve = self.read_curve()
+            curve = self._capture_factory(profile)
             self._save_snapshot(profile, curve)
             action = f"captured factory curve for {profile}"
         else:
-            curve = snap  # type: ignore[assignment]
+            curve = self._floored(snap, profile)  # type: ignore[arg-type]
+            if curve != snap:
+                self._save_snapshot(profile, curve)
             action = f"restored curve for {profile}"
         self._write_curve(curve)
         self._write_enable(1)
@@ -262,9 +323,9 @@ class Fan(Module):
     async def revert(self) -> None:
         self._stop_watchdog()
         async with self._lock:
-            self._write_enable(2)
+            self._write_enable(3)  # firmware auto, with the factory curve back in the custom registers
         self._last_event = "unpinned"
-        logger.info("[fan] curve unpinned (firmware auto)")
+        logger.info("[fan] curve unpinned (firmware auto, factory curve)")
 
     def details(self) -> Dict[str, Any]:
         profile = self.profile()
@@ -275,7 +336,7 @@ class Fan(Module):
             pass
         return {"profile": profile, "pwmEnable": list(self.enable_state()), "rpm": list(self.rpm()), "temp": self.temp(),
                 "curve": cur, "snapshotProfiles": sorted(self.snapshots()), "lastEvent": self._last_event,
-                "override": self._override is not None, "fixedByOs": fixed_by_os()}
+                "override": self._override is not None, "fixedByOs": fixed_by_os(), "floorFromC": FLOOR_FROM_C}
 
     async def start(self) -> None:
         if self.enabled and not self.active and self.supported()[0] and self.is_applied():
@@ -316,13 +377,14 @@ class Fan(Module):
             raise RuntimeError(NOT_NEEDED if fixed_by_os() else "turn fan curve pinning on first")
         c = sanitize(curve)
         async with self._lock:
-            self._save_snapshot(self.profile(), c)
+            profile = self.profile()
+            self._save_snapshot(profile, self._floored(c, profile))
             self._last_event = self._pin("custom", force_write=True)
 
     # ------------------------------------------------------------- watchdog
     def _start_watchdog(self) -> None:
         if self._task is None or self._task.done():
-            self._task = asyncio.get_event_loop().create_task(self._watchdog())
+            self._task = asyncio.get_running_loop().create_task(self._watchdog())
 
     def _stop_watchdog(self) -> None:
         if self._task is not None and not self._task.done():

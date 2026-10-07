@@ -55,7 +55,20 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
     the LED class at 255 per zone (rings turned blue after sleep), LV2 check without `lv2ls`,
     converter venv rebuilt for Python 3.14. Setup, reconversion and the fan gate checked there.
 
+16. **Review fixes** (0.5.0): root/user boundary for reads (safefs), checked settings and
+    arguments, fan floor at the factory curve from 85 °C, headphone EQ that can only attenuate,
+    jack events instead of polling, concurrent resume hooks, pre-checked update zip, hash-pinned
+    converter wheels, reproducible shim, Python 3.11/3.13/3.14 in CI. Unit-tested; the device
+    checks are listed below.
+
 ## Open
+
+- **0.5.0 on the devices**: checked on the RC73XA (SteamOS 3.9.2 beta, 2026-10-07): install through
+  Decky with a local zip, all module states unchanged, jack switch found (`event13`; backend CPU
+  1.67 % -> 0.09 % of a core), rebuilt shim patching the real steamclient.so, floored game fan curve
+  in the EC and the factory curve back afterwards, backup restore and the cancel button during a
+  running setup, hash-pinned wheels with Python 3.14.6, all pages. Still open: a headphone plug
+  by hand, a sleep/wake cycle, the RC72LA, an update from a signed GitHub release.
 
 - **Gyro on the ROG Ally X**: the override is applied and reverted correctly; whether Steam then
   reads the axes right needs a hand on the device (expected, since product id and mount matrix are

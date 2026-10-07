@@ -1,8 +1,16 @@
-"""Update check and release verification; installation is delegated to Decky Loader."""
+"""Update check and release verification; installation is delegated to Decky Loader.
+
+Decky removes the installed version before it checks the zip's hash, so a zip that fails the check
+would leave no plugin behind (and the uninstall cleanup would run). The backend therefore downloads
+and checks the zip itself and hands Decky a local file.
+"""
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
+import shutil
 import time
 from typing import Any, Dict, Optional, Tuple
 
@@ -11,6 +19,9 @@ from .constants import GITHUB_REPO, PLUGIN_NAME, RELEASE_ZIP_TEMPLATE, UPDATE_CH
 from .log import logger
 from .minisign import verify_bytes
 from .util import run
+
+STAGING = "/run/ally-companion-update"  # root only; cleared when the backend starts
+MAX_ZIP = 128 << 20
 
 
 def parse_version(v: str) -> Tuple[int, ...]:
@@ -118,3 +129,27 @@ def verify_release(latest: Dict[str, Any], pubkey_path: str = paths.PUBKEY_FILE)
     if not sha:
         raise RuntimeError(f"SHA256SUMS has no entry for {zip_name}")
     return {"artifact": zip_url, "name": PLUGIN_NAME, "version": version, "hash": sha, "detail": detail}
+
+
+def download_verified(release: Dict[str, Any], staging: str = STAGING) -> Dict[str, Any]:
+    """Download the verified release's zip into a root-only directory, check it against the signed
+    SHA-256 and return the release with a file:// artifact for Decky's installer."""
+    clear_staging(staging)
+    os.makedirs(staging, mode=0o700)
+    dest = os.path.join(staging, RELEASE_ZIP_TEMPLATE.format(version=release["version"]))
+    r = run(["curl", "-fsSL", "--max-time", "300", "--max-filesize", str(MAX_ZIP), "-A", USER_AGENT, "-o", dest,
+             release["artifact"]], timeout=320)
+    if not r.ok:
+        raise RuntimeError(f"download failed (rc={r.rc}): {r.err.strip()[:160]}")
+    h = hashlib.sha256()
+    with open(dest, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    if h.hexdigest() != release["hash"]:
+        clear_staging(staging)
+        raise RuntimeError("the downloaded zip does not match the signed checksum")
+    return dict(release, artifact="file://" + dest)
+
+
+def clear_staging(staging: str = STAGING) -> None:
+    shutil.rmtree(staging, ignore_errors=True)

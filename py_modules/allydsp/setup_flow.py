@@ -14,8 +14,9 @@ RANGES = {"hardware": (0, 3), "resolve": (3, 6), "download": (6, 30), "extract":
 Progress = Callable[[Dict[str, Any]], None]
 
 
-class Cancelled(RuntimeError):
-    pass
+class Cancelled(BaseException):
+    """SIGTERM or the cancel check. Not an Exception: the per-preset `except Exception` in
+    convert_all (and similar handlers) must not swallow it and carry on converting."""
 
 
 def _emit(progress: Progress, step: str, status: str, message: str, sub: float = 0.0, **extra) -> None:

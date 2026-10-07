@@ -6,7 +6,7 @@
 # does not have to be rebuilt for other kernels; commit the result.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-IMG=ally-fix-bpf
+IMG=ally-companion-bpf:$(sha256sum bpf/Containerfile | cut -c1-12)
 podman image exists "$IMG" || podman build -t "$IMG" -f bpf/Containerfile bpf
 mkdir -p bin
 podman run --rm --userns=keep-id -w /w \

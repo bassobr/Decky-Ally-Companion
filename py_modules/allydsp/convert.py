@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import os
 import shutil
+import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import confgen, paths
 from .constants import PROFILE_IDS, PROFILE_LABELS, VOICING_LABELS, VOICINGS
 from .log import logger
-from .util import read_json, run, sha256_file, user_env, write_json
+from .util import atomic_copy, atomic_write_text, read_json, run, sha256_file, user_env, write_json
 
 Progress = Optional[Callable[[float, str], None]]
 VENV_META = os.path.join(paths.VENV_DIR, "meta.json")
@@ -20,9 +21,27 @@ def venv_python() -> str:
     return os.path.join(paths.VENV_DIR, "bin", "python")
 
 
+_py_version: Tuple[Optional[Tuple[int, int, int]], Optional[str]] = (None, None)
+_py_lock = threading.Lock()
+
+
 def system_python_version() -> Optional[str]:
+    """Version of the system Python, asked once per interpreter file (status checks call this)."""
+    global _py_version
+    try:
+        st = os.stat(paths.SYSTEM_PYTHON)
+        key: Optional[Tuple[int, int, int]] = (st.st_ino, st.st_mtime_ns, st.st_size)
+    except OSError:
+        key = None
+    with _py_lock:
+        if key is not None and _py_version[0] == key:
+            return _py_version[1]
     r = run([paths.SYSTEM_PYTHON, "-c", "import sys;print('%d.%d.%d'%sys.version_info[:3])"], timeout=20)
-    return r.out.strip() if r.ok else None
+    version = r.out.strip() if r.ok else None
+    if version and key is not None:
+        with _py_lock:
+            _py_version = (key, version)
+    return version
 
 
 def venv_meta() -> Optional[Dict[str, Any]]:
@@ -49,15 +68,14 @@ def ensure_venv(progress: Progress = None) -> Dict[str, Any]:
         raise RuntimeError(f"venv creation failed rc={r.rc}: {(r.err or r.out).strip()[-300:]}")
     if progress:
         progress(15, "installing numpy/scipy (pinned)")
-    pip = [venv_python(), "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--quiet"]
+    # Wheels only, each checked against the hashes in the requirements file. No unpinned fallback:
+    # what runs as the user here should be exactly what was reviewed.
+    pip = [venv_python(), "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--quiet",
+           "--require-hashes", "--only-binary=:all:"]
     r = run(pip + ["-r", paths.CONVERTER_REQUIREMENTS], timeout=1800)
     if not r.ok:
-        logger.warning(f"pinned install failed rc={r.rc}, retrying unpinned: {r.err.strip()[-200:]}")
-        if progress:
-            progress(40, "installing numpy/scipy (latest)")
-        r = run(pip + ["numpy", "scipy"], timeout=1800)
-        if not r.ok:
-            raise RuntimeError(f"pip install failed rc={r.rc}: {(r.err or r.out).strip()[-300:]}")
+        raise RuntimeError(f"pinned numpy/scipy install failed rc={r.rc} (no wheel for Python "
+                           f"{system_python_version()}? the plugin needs new pins): {(r.err or r.out).strip()[-300:]}")
     if progress:
         progress(90, "verifying imports")
     chk = run([venv_python(), "-c", "import numpy,scipy;print(numpy.__version__);print(scipy.__version__)"], timeout=120)
@@ -152,11 +170,10 @@ def convert_one(xml: str, profile: str, voicing: str, target_sink: str, extras: 
     comment = (f"preset={profile}/{voicing} target={target_sink} extras={extras_flags(extras, allow_virtual_bass)} "
                f"xml_sha256={xml_sha256 or '?'} generated={time.strftime('%Y-%m-%dT%H:%M:%S')}")
     final = confgen.finalize(raw, active_irs, description, target_sink, comment)
-    shutil.copy2(irss[0], os.path.join(out_dir, "ir.irs"))
-    with open(os.path.join(out_dir, "chain.conf"), "w", encoding="utf-8") as f:
-        f.write(final)
-    with open(os.path.join(out_dir, "converter.conf"), "w", encoding="utf-8") as f:
-        f.write(raw)
+    # each file replaced in one step: a cancelled setup (SIGTERM) never leaves a cut-off preset behind
+    atomic_copy(irss[0], os.path.join(out_dir, "ir.irs"))
+    atomic_write_text(os.path.join(out_dir, "chain.conf"), final)
+    atomic_write_text(os.path.join(out_dir, "converter.conf"), raw)
     meta = {
         "profile": profile, "voicing": voicing, "label": PROFILE_LABELS.get(profile, profile),
         "voicing_label": VOICING_LABELS.get(voicing, voicing), "description": description,

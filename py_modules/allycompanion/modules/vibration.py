@@ -103,6 +103,10 @@ class Vibration(Module):
         self._override: Optional[Tuple[int, int]] = None  # per-game strength (profiles module)
 
     # ------------------------------------------------------------- options
+    def normalize(self, cfg: Dict[str, Any]) -> None:
+        for k in ("left", "right"):
+            cfg[k] = clamp(cfg.get(k, 50))
+
     @property
     def intensity(self) -> Tuple[int, int]:
         if self._override is not None:
@@ -111,6 +115,7 @@ class Vibration(Module):
 
     async def set_override(self, values: Optional[Dict[str, Any]]) -> None:
         """Per-game strength from the profiles module; None goes back to the setting."""
+        values = values if isinstance(values, dict) else None
         new = (clamp(values.get("left", 50)), clamp(values.get("right", values.get("left", 50)))) if values else None
         if new != self._override:
             self._override = new
@@ -326,7 +331,7 @@ class Vibration(Module):
 
     def _schedule_rebind(self, reason: str) -> None:
         if self._rebind_task is None or self._rebind_task.done():
-            self._rebind_task = asyncio.get_event_loop().create_task(self._rebind(reason))
+            self._rebind_task = asyncio.get_running_loop().create_task(self._rebind(reason))
 
     async def _rebind(self, reason: str) -> None:
         sent = failed = 0

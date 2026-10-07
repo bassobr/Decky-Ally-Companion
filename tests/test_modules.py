@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 
 import pytest
@@ -18,6 +19,12 @@ source_devices:
         y: [0, -1, 0]
         z: [0, 0, -1]
 """
+
+
+def _write_json(path, obj):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(obj, f)
 
 
 def _write(root, rel, text):
@@ -47,9 +54,7 @@ def test_all_modules_have_unique_ids_and_json_defaults():
     reg = Registry(MODULES)
     assert list(reg.modules) == ["audio", "mic", "headphones", "vibration", "gyro", "gamepad_layout", "cpu_boost", "fan", "battery", "lighting",
                                  "profiles", "news"]
-    util.write_json  # defaults must be JSON-serialisable
-    import json
-    json.dumps(reg.defaults())
+    json.dumps(reg.defaults())  # defaults must be JSON-serialisable
 
 
 # ------------------------------------------------------------------ gyro
@@ -240,7 +245,7 @@ def test_conflicts_and_migration(tmp_path, monkeypatch):
     plugins = tmp_path / "homebrew/plugins"
     (plugins / "Ally Fix").mkdir(parents=True)
     (plugins / "Ally Fix/plugin.json").write_text("{}")
-    util.write_json(str(tmp_path / "homebrew/settings/Ally Fix/settings.json"), {
+    _write_json(str(tmp_path / "homebrew/settings/Ally Fix/settings.json"), {
         "vibration": {"enabled": True, "left": 40, "right": 40, "enhanced": True},
         "gyro": {"enabled": True, "mode": "complex", "steam_cfg_prev": ""},
         "gamepad_layout": {"enabled": True},
@@ -330,7 +335,7 @@ def test_profiles_push_overrides_on_app_change():
     asyncio.run(m.on_app_changed("42"))
     assert light.values == {"color": "#00ff00"} and vib.values is None
     asyncio.run(m.set_app(appId="42", part="vibration", values={"left": 20}))
-    assert vib.values == {"left": 20}
+    assert vib.values == {"left": 20, "right": 20}  # stored as the vibration module keeps it
     asyncio.run(m.on_app_changed(None))
     assert light.values is None and vib.values is None
     asyncio.run(m.set_app(appId="42", part="lighting", values=None))
@@ -417,7 +422,8 @@ def test_autoeq_index_search_and_profile():
     eq = headphones.parse_parametric(PEQ)
     assert eq["preamp"] == -6.1 and [f["type"] for f in eq["filters"]] == ["bq_lowshelf", "bq_peaking", "bq_highshelf"]
     conf = headphones.config({**eq, "name": "HD 650", "source": "oratory1990"}, "alsa_output.x")
-    assert '"Gain" = -6.10' in conf and 'output = "f2:Out" input = "f3:In"' in conf
+    # AutoEQ's -6.1 dB leaves the low shelf (+6.4 dB) a little above 0 dB: lowered to the summed response
+    assert '"Gain" = -6.39' in conf and 'output = "f2:Out" input = "f3:In"' in conf
     assert 'filter.smart.target = { node.name = "alsa_output.x" }' in conf
     with pytest.raises(ValueError):
         headphones.parse_parametric("Preamp: 0 dB")
@@ -524,9 +530,11 @@ def test_restore_keeps_runtime_state(monkeypatch):
     for m in reg.modules.values():
         m.supported = lambda: (False, "test")  # no hardware work
     from allycompanion import backup
-    asyncio.run(reg.restore({"battery": {}, "profiles": {"apps": {"1": {"name": "x"}}}}, backup.TRANSIENT))
+    entry = {"name": "x", "cpuBoost": {"boost": True}}
+    asyncio.run(reg.restore({"battery": {}, "profiles": {"apps": {"1": entry, "2": {"name": "parts only count"}}}},
+                            backup.TRANSIENT))
     assert s["modules"]["battery"]["fullOnce"] == 80 and s["modules"]["battery"]["history"][0]["h"] == 94.0
-    assert s["modules"]["profiles"]["perfBaseline"] == "balanced" and s["modules"]["profiles"]["apps"] == {"1": {"name": "x"}}
+    assert s["modules"]["profiles"]["perfBaseline"] == "balanced" and s["modules"]["profiles"]["apps"] == {"1": entry}
 
 
 def test_manual_limit_ends_full_charge(monkeypatch):

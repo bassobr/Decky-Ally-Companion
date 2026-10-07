@@ -16,8 +16,10 @@ supply events.
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import re
+import threading
 from typing import Any, Dict, Optional, Tuple
 
 from .. import ally_hid, sysfs
@@ -41,6 +43,25 @@ def parse_color(value: Any, fallback: str = "#ffffff") -> Tuple[int, int, int]:
     assert m
     n = int(m.group(1), 16)
     return (n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF
+
+
+def clean_values(values: Any) -> Dict[str, Any]:
+    """Lighting values from the UI, a game profile or settings.json; invalid ones are dropped."""
+    out: Dict[str, Any] = {}
+    if not isinstance(values, dict):
+        return out
+    if values.get("mode") in MODES:
+        out["mode"] = values["mode"]
+    for k in ("color", "color2"):
+        m = _HEX.match(values[k]) if isinstance(values.get(k), str) else None
+        if m:
+            out[k] = "#" + m.group(1).lower()
+    b = values.get("brightness")
+    if isinstance(b, (int, float)) and not isinstance(b, bool) and math.isfinite(b):
+        out["brightness"] = max(0, min(100, int(b)))
+    if values.get("speed") in SPEEDS:
+        out["speed"] = values["speed"]
+    return out
 
 
 def packed_rgb_supported() -> bool:
@@ -83,31 +104,28 @@ class Lighting(Module):
         self._resume_task: Optional[asyncio.Task] = None
         self._override: Dict[str, Any] = {}  # per-game values from the profiles module
         self._shown = ""
+        self._hw_lock = threading.Lock()  # one packet sequence to the MCU at a time, whichever thread
 
     # ------------------------------------------------------------- settings
+    def normalize(self, cfg: Dict[str, Any]) -> None:
+        clean = clean_values(cfg)
+        for k in ("mode", "color", "color2", "brightness", "speed"):
+            cfg[k] = clean.get(k, self.defaults[k])
+
     def effective(self) -> Dict[str, Any]:
         out = {k: self.cfg.get(k, v) for k, v in self.defaults.items()}
         out.update(self._override)
         return out
 
     def set_options(self, opts: Dict[str, Any]) -> bool:
-        values: Dict[str, Any] = {}
-        if opts.get("mode") in MODES:
-            values["mode"] = opts["mode"]
-        for k in ("color", "color2"):
-            if k in opts and _HEX.match(str(opts[k])):
-                values[k] = "#" + _HEX.match(str(opts[k])).group(1).lower()  # type: ignore[union-attr]
-        if "brightness" in opts:
-            values["brightness"] = max(0, min(100, int(opts["brightness"])))
-        if opts.get("speed") in SPEEDS:
-            values["speed"] = opts["speed"]
+        values = clean_values(opts)
         if values:
             self.update_cfg(values)
         return bool(values)
 
     async def set_override(self, values: Optional[Dict[str, Any]]) -> None:
         """Per-game values (profiles module); None clears them."""
-        new = {k: v for k, v in (values or {}).items() if k in self.defaults and k != "enabled"}
+        new = clean_values(values)
         if new != self._override:
             self._override = new
             await self.reapply_if_enabled()
@@ -122,18 +140,20 @@ class Lighting(Module):
         return bool(self._shown)
 
     async def apply(self) -> None:
-        eff = self.effective()
-        mode = eff["mode"]
-        await self._stop_battery()
-        if mode == "battery":
-            self._battery_task = asyncio.get_event_loop().create_task(self._battery_loop())
-            return
-        await asyncio.to_thread(self._show, mode, parse_color(eff["color"]), parse_color(eff["color2"], "#000000"),
-                                int(eff["brightness"]), str(eff["speed"]))
+        async with self._lock:  # resume, game profiles and the UI may apply at the same time
+            eff = self.effective()
+            mode = eff["mode"]
+            await self._stop_battery()
+            if mode == "battery":
+                self._battery_task = asyncio.get_running_loop().create_task(self._battery_loop())
+                return
+            await asyncio.to_thread(self._show, mode, parse_color(eff["color"]), parse_color(eff["color2"], "#000000"),
+                                    int(eff["brightness"]), str(eff["speed"]))
 
     async def revert(self) -> None:
-        await self._stop_battery()
-        self._shown = ""  # the rings keep their last state; nothing to restore
+        async with self._lock:
+            await self._stop_battery()
+            self._shown = ""  # the rings keep their last state; nothing to restore
 
     def details(self) -> Dict[str, Any]:
         eff = self.effective()
@@ -154,7 +174,7 @@ class Lighting(Module):
 
     async def on_resume(self, slept_s: float) -> None:
         if self.enabled and (self._resume_task is None or self._resume_task.done()):
-            self._resume_task = asyncio.get_event_loop().create_task(self._after_resume())
+            self._resume_task = asyncio.get_running_loop().create_task(self._after_resume())
 
     async def _after_resume(self) -> None:
         for delay in RESUME_DELAYS_S:  # the MCU comes back at an unpredictable moment
@@ -190,16 +210,18 @@ class Lighting(Module):
         ally_hid.send_raw(bytes([ally_hid.REPORT_ID, 0xB5]))
 
     def _show(self, mode: str, rgb: Tuple[int, int, int], rgb2: Tuple[int, int, int], brightness: int, speed: str) -> None:
-        if mode == "off" or brightness <= 0:
-            self._write_static((0, 0, 0), 0)
-        elif mode == "static":
-            self._write_static(rgb, brightness)
-        else:
-            self._write_ec(mode, rgb, rgb2, brightness, speed)
-        shown = f"{mode} #{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x} {brightness}%"
-        if shown != self._shown:
-            logger.info("[lighting] %s", shown)
-        self._shown = shown
+        # A cancelled caller leaves its thread running: the lock keeps two sequences from interleaving.
+        with self._hw_lock:
+            if mode == "off" or brightness <= 0:
+                self._write_static((0, 0, 0), 0)
+            elif mode == "static":
+                self._write_static(rgb, brightness)
+            else:
+                self._write_ec(mode, rgb, rgb2, brightness, speed)
+            shown = f"{mode} #{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x} {brightness}%"
+            if shown != self._shown:
+                logger.info("[lighting] %s", shown)
+            self._shown = shown
 
     # ------------------------------------------------------------- battery mode
     def _battery_state(self) -> Tuple[int, bool]:
@@ -228,5 +250,6 @@ class Lighting(Module):
 
     async def _on_power(self, event: Dict[str, str]) -> None:
         if self.enabled and self.effective()["mode"] == "battery":
-            await self._stop_battery()
-            self._battery_task = asyncio.get_event_loop().create_task(self._battery_loop())
+            async with self._lock:
+                await self._stop_battery()
+                self._battery_task = asyncio.get_running_loop().create_task(self._battery_loop())

@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+import threading
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import devices, paths
 from .constants import CALF_SATURATOR_URI, INPUT_NODE, LSP_URIS
@@ -91,15 +93,27 @@ def kernel() -> str:
         return ""
 
 
-def pw_dump() -> List[Dict[str, Any]]:
+_dump: Tuple[float, List[Dict[str, Any]]] = (0.0, [])
+_dump_lock = threading.Lock()
+
+
+def pw_dump(max_age: float = 0.0) -> List[Dict[str, Any]]:
+    """The PipeWire graph (a few hundred KB of JSON); `max_age` reuses a dump that young, so the
+    modules of one status round share it. Watchers ask for a fresh one."""
+    global _dump
+    with _dump_lock:
+        at, cached = _dump
+    if max_age and cached and time.monotonic() - at < max_age:
+        return cached
     r = run(["pw-dump"], timeout=15)
-    if not r.ok:
-        return []
     try:
-        data = json.loads(r.out)
-        return data if isinstance(data, list) else []
+        data = json.loads(r.out) if r.ok else []
     except ValueError:
-        return []
+        data = []
+    data = data if isinstance(data, list) else []
+    with _dump_lock:
+        _dump = (time.monotonic(), data)
+    return data
 
 
 def _props(obj: Dict[str, Any]) -> Dict[str, Any]:

@@ -68,7 +68,7 @@ export function News() {
         </DialogControlsSection>
       )}
       <DialogControlsSection>
-        <DialogControlsSectionHeader>{`SteamOS · ${CHANNEL[d.channel] ?? d.channel ?? "?"} channel · installed ${d.installed?.steamos ?? "?"}`}</DialogControlsSectionHeader>
+        <DialogControlsSectionHeader>{`SteamOS · ${(d.channel && CHANNEL[d.channel]) ?? d.channel ?? "?"} channel · installed ${d.installed?.steamos ?? "?"}`}</DialogControlsSectionHeader>
         {steamos.length === 0 && <Field focusable label="No release notes loaded" />}
         {steamos.map((i) => (
           <div key={i.id}>

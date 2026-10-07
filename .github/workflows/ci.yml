@@ -25,12 +25,8 @@ jobs:
       - run: pnpm run build
       - run: pnpm run typecheck
       - run: pnpm audit --prod --audit-level=high
-      - name: Backend syntax and tests
-        run: |
-          python3 -m compileall -q main.py py_modules/allycompanion py_modules/allydsp
-          python3 -m pip install --quiet pytest
-          python3 -m pytest tests/ -q
-          bash -n install.sh scripts/*.sh
+      - name: Scripts
+        run: bash -n install.sh scripts/*.sh shim/build.sh bpf/build.sh
       - name: Assemble runtime pieces (converter, LV2 bundle)
         run: |
           scripts/assemble-converter.sh
@@ -44,3 +40,36 @@ jobs:
           path: |
             out/ally-companion-*.zip
             out/SHA256SUMS
+
+  # The backend runs in Decky's bundled Python (3.11); the DSP worker, the userfs helper and the
+  # uninstall cleanup run in SteamOS' system Python (3.13 on 3.8, 3.14 on 3.9).
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Backend syntax and tests
+        run: |
+          python3 -m compileall -q main.py py_modules/allycompanion py_modules/allydsp
+          python3 -m pip install --quiet pytest
+          python3 -m pytest tests/ -q
+
+  # bin/liballycaps*.so are committed; the pinned container must reproduce them bit for bit.
+  shim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rebuild the Steam client shim and compare
+        run: |
+          CONTAINER_ENGINE=docker shim/build.sh
+          git diff --exit-code --stat -- bin/liballycaps.so bin/liballycaps64.so

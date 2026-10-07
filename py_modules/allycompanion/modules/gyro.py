@@ -28,7 +28,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import dbus, device, steam, userfs
+from .. import dbus, device, safefs, steam, userfs
 from ..constants import INPUTPLUMBER_BUS
 from ..log import logger
 from ..module import Module
@@ -124,6 +124,7 @@ def body(text: str) -> str:
 
 
 def read_text(path: str) -> Optional[str]:
+    """A system file (InputPlumber's configs); steam_dev.cfg goes through read_steam_cfg."""
     try:
         with open(path, "r", encoding="utf-8", newline="") as f:
             return f.read()
@@ -131,6 +132,27 @@ def read_text(path: str) -> Optional[str]:
         return None
     except ValueError:
         return "�"  # not UTF-8: a foreign file
+
+
+def read_steam_cfg() -> Optional[str]:
+    """steam_dev.cfg as the user would read it (root must not follow a link planted there)."""
+    path = steam_cfg()
+    try:
+        data = safefs.read_bytes(path)
+    except OSError as e:
+        raise RuntimeError(f"{path} not readable: {e}") from e
+    if data is None:
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise RuntimeError(f"{path} is not UTF-8; not touching it") from e
+
+
+def clean_prev(value: Any) -> str:
+    """The foreign convar line to put back: one line with that convar, nothing else."""
+    line = value if isinstance(value, str) else ""
+    return line if len(line) <= 200 and "\n" not in line and "\r" not in line and line.split()[:1] == [CONVAR] else ""
 
 
 def is_convar_line(line: str) -> bool:
@@ -187,6 +209,11 @@ class Gyro(Module):
         super().__init__()
         self._targets: Tuple[float, List[str]] = (0.0, [])
 
+    def normalize(self, cfg: Dict[str, Any]) -> None:
+        if cfg.get("mode") not in MODES:
+            cfg["mode"] = "simple"
+        cfg["steamCfgPrev"] = clean_prev(cfg.get("steamCfgPrev"))
+
     @property
     def mode(self) -> str:
         m = self.cfg.get("mode", "simple")
@@ -228,7 +255,10 @@ class Gyro(Module):
         return "current" if text == expected else "mismatch"
 
     def steam_cfg_has_convar(self) -> bool:
-        text = read_text(steam_cfg()) or ""
+        try:
+            text = read_steam_cfg() or ""
+        except RuntimeError:
+            return False
         return any(is_convar_line(l) for l in text.splitlines())
 
     # ------------------------------------------------------------- module interface
@@ -299,10 +329,8 @@ class Gyro(Module):
 
     def _set_convar(self, present: bool) -> None:
         path = steam_cfg()
-        text = read_text(path)
-        if text == "�":
-            raise RuntimeError(f"{path} is not UTF-8; not touching it")
-        new, prev = edit_steam_cfg(text, present, str(self.cfg.get("steamCfgPrev") or ""))
+        text = read_steam_cfg()
+        new, prev = edit_steam_cfg(text, present, clean_prev(self.cfg.get("steamCfgPrev")))
         self.update_cfg({"steamCfgPrev": prev})
         if new == text:
             return
