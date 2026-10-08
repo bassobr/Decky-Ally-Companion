@@ -149,6 +149,11 @@ def extras_signature(extras: Dict[str, Any]) -> str:
     return hashlib.sha1(json.dumps(sig, sort_keys=True).encode()).hexdigest()[:12]
 
 
+def presets_stale(s: Dict[str, Any]) -> bool:
+    """The presets were converted with other extras (changed since, or a conversion did not finish)."""
+    return extras_signature(s["extras"]) != s["setup"].get("extrasSignature")
+
+
 def resolve(s: Dict[str, Any], app_id: Optional[str]) -> Dict[str, Any]:
     if app_id:
         entry = (s.get("perApp") or {}).get(str(app_id))

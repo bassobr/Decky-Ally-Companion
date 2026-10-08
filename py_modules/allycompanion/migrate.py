@@ -50,10 +50,6 @@ SOURCES: Dict[str, Callable[[Dict[str, Any]], Dict[str, Dict[str, Any]]]] = {
 }
 
 
-def register(name: str, convert: Callable[[Dict[str, Any]], Dict[str, Dict[str, Any]]]) -> None:
-    SOURCES[name] = convert
-
-
 def run(settings: Dict[str, Any], defaults: Dict[str, Dict[str, Any]]) -> List[str]:
     """Import what is due; returns the plugins imported now. Mutates `settings`."""
     if not isinstance(settings.get("migrated"), list):

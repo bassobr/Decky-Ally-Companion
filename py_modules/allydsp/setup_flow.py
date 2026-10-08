@@ -156,8 +156,6 @@ def run_setup(progress: Progress, force: bool = False, use_network: bool = True,
                                       progress=lambda pct, msg: _emit(progress, "convert", "running", msg, pct),
                                       cancel=cancel)
         failed = {k: v for k, v in results.items() if v != "ok"}
-        if len(failed) == len(results):
-            raise RuntimeError("All conversions failed: " + next(iter(failed.values())))
         _emit(progress, "convert", "done", f"{len(results) - len(failed)} presets ready" + (f", {len(failed)} failed" if failed else ""))
     check_cancel()
 

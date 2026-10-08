@@ -159,37 +159,6 @@ def filter_node_present(dump: List[Dict[str, Any]], node_name: str = INPUT_NODE)
     return any(_props(o).get("node.name") == node_name for o in dump)
 
 
-def filter_links(dump: List[Dict[str, Any]]) -> Dict[str, int]:
-    """Link counts on the chain's input and output nodes."""
-    ids = {o.get("id"): _props(o).get("node.name") for o in dump if _props(o).get("node.name", "").startswith("effect_")}
-    counts = {"input": 0, "output": 0}
-    for obj in dump:
-        if obj.get("type") != "PipeWire:Interface:Link":
-            continue
-        info = obj.get("info", {})
-        if ids.get(info.get("input-node-id")) == INPUT_NODE:
-            counts["input"] += 1
-        if ids.get(info.get("output-node-id")) == INPUT_NODE.replace("effect_input", "effect_output"):
-            counts["output"] += 1
-    return counts
-
-
-def tas_controls(card: int) -> Dict[str, Any]:
-    out: Dict[str, Any] = {"bound": False, "controls": {}}
-    r = run(["amixer", "-c", str(card), "controls"], timeout=10)
-    if not r.ok:
-        return out
-    names = re.findall(r"name='(Speaker [^']+)'", r.out)
-    out["bound"] = any(n in ("Speaker Program Id", "Speaker Config Id") for n in names)
-    for n in ("Speaker Program Id", "Speaker Config Id", "Speaker Profile Id", "Speaker Analog Gain",
-              "Speaker Force Firmware Load"):
-        if n in names:
-            c = run(["amixer", "-c", str(card), "cget", f"iface=CARD,name={n}"], timeout=10)
-            m = re.search(r": values=([^\n]+)", c.out)
-            out["controls"][n] = m.group(1).strip() if m else "?"
-    return out
-
-
 LV2_PLUGIN = "http://lv2plug.in/ns/lv2core#Plugin"
 LV2_BINARY = "http://lv2plug.in/ns/lv2core#binary"
 RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"

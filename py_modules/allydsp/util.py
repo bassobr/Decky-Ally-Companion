@@ -77,10 +77,6 @@ def sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
-def sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
 def makedirs_user(path: str) -> None:
     """mkdir -p as the user, also when called from the root backend."""
     if _as_root():
@@ -150,24 +146,3 @@ def read_json(path: str, default: Any = None) -> Any:
 
 def write_json(path: str, obj) -> None:
     atomic_write_text(path, json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
-
-
-def human_bytes(n: Optional[float]) -> str:
-    if n is None:
-        return "?"
-    n = float(n)
-    for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024 or unit == "GB":
-            return f"{n:.1f} {unit}" if unit != "B" else f"{int(n)} B"
-        n /= 1024
-    return f"{n:.1f} GB"
-
-
-def parse_size(text: str) -> Optional[int]:
-    """'10.33 MB' -> bytes (approximate, decimal-friendly for progress bars)."""
-    try:
-        num, unit = text.strip().split()
-        mult = {"B": 1, "KB": 1024, "MB": 1024 ** 2, "GB": 1024 ** 3}[unit.upper()]
-        return int(float(num) * mult)
-    except (ValueError, KeyError):
-        return None

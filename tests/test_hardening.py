@@ -1,4 +1,4 @@
-"""Root/user boundary, input checks and the fixes from the 0.5.0 review."""
+"""Root/user boundary, input checks and the fixes from the 0.5.0 and 0.5.3 reviews."""
 import ast
 import asyncio
 import gc
@@ -12,9 +12,10 @@ import time
 
 import pytest
 
-from allycompanion import jacksense, migrate, paths, safefs, settings, updater, userfs, util
+from allycompanion import jacksense, migrate, paths, safefs, settings, sysfs, updater, userfs, util
 from allycompanion.module import Context, Module
-from allycompanion.modules import MODULES, audio, battery, fan, gyro, headphones, lighting, news, profiles, vibration
+from allycompanion.modules import (MODULES, audio, battery, cpu_boost, fan, gyro, headphones, lighting, news, profiles,
+                                    vibration)
 from allycompanion.registry import Registry
 from allycompanion.resume import ResumeDetector
 from allydsp import asus_fetch, convert, hardware, jackwatch
@@ -435,10 +436,14 @@ def test_jack_switch_events_are_parsed(sysroot):
 def test_jack_watcher_polls_rarely_with_events_and_densely_after_one():
     w = jackwatch.JackWatcher()
     assert w.next_delay() == 3.0
-    w.event_driven = True
+    events = [True]
+    w.event_driven = lambda: events[0]
     assert w.next_delay() == jackwatch.IDLE_S
     w.kick()
     assert w.next_delay() == jackwatch.BURST_STEP_S
+    w._burst_until = 0.0
+    events[0] = False  # the jack switch went away (driver rebind): back to dense polling
+    assert w.next_delay() == 3.0
 
 
 def test_status_rounds_share_one_pw_dump_and_python_version(tmp_path, monkeypatch):
@@ -812,3 +817,108 @@ def test_vibration_rebind_warns_only_when_every_try_failed(monkeypatch, caplog):
         asyncio.run(m._rebind("hid add"))
     warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
     assert len(warnings) == 1 and "attribute not found" in m.last_error
+
+
+# ------------------------------------------------------------------ fixes from the 0.5.3 review
+
+def test_cpu_boost_off_during_a_cap_kick_leaves_the_cap_lifted(sysroot, monkeypatch):
+    pol = "sys/devices/system/cpu/cpu0/cpufreq"
+    _write(sysroot, "sys/devices/system/cpu/cpufreq/boost", "0")
+    _write(sysroot, f"{pol}/scaling_max_freq", "3301000")
+    _write(sysroot, f"{pol}/cpuinfo_max_freq", "5135000")
+    _write(sysroot, f"{pol}/scaling_cur_freq", "1000000")
+    monkeypatch.setattr(cpu_boost.CpuBoost, "cap_slips", staticmethod(lambda: True))
+    monkeypatch.setattr(cpu_boost, "DEBOUNCE_S", 0)
+    monkeypatch.setattr(cpu_boost, "WATCH_WINDOW_S", 0)
+    m = _module(cpu_boost.CpuBoost, {"enabled": True})
+
+    async def main():
+        m.schedule_refresh("charger")
+        await asyncio.sleep(0.05)  # the kick is in its pause, with the cap lowered by one step
+        await m.set_override({"boost": True})  # a game with boost on starts
+        await asyncio.sleep(0.3)
+
+    asyncio.run(main())
+    with open(os.path.join(sysroot, pol, "scaling_max_freq")) as f:
+        assert f.read() == "5135000"  # the kick's cleanup ran first, not after the lift
+
+
+def test_boost_on_makes_the_processor_cooling_limits_follow_the_boost_clock(sysroot, monkeypatch):
+    # The ACPI processor cooling limit is a share of cpuinfo_max_freq taken when its state was set:
+    # set while boost was off (after a sleep), it kept the cores at 2.0 GHz with boost on.
+    _write(sysroot, "sys/devices/system/cpu/cpufreq/boost", "0")
+    _write(sysroot, "sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq", "5090910")
+    _write(sysroot, "sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq", "2000000")
+    for n, kind, state in ((0, "Fan", "1"), (1, "Processor", "0"), (2, "Processor", "2")):
+        _write(sysroot, f"sys/class/thermal/cooling_device{n}/type", kind + "\n")
+        _write(sysroot, f"sys/class/thermal/cooling_device{n}/cur_state", state + "\n")
+    written = []
+    real = sysfs.write_str
+    monkeypatch.setattr(sysfs, "write_str", lambda path, value: written.append((os.path.relpath(path, sysroot), value))
+                        or real(path, value))
+    asyncio.run(_module(cpu_boost.CpuBoost, {"enabled": True}).revert())
+    assert written[0] == ("sys/devices/system/cpu/cpufreq/boost", "1")  # the share is taken of the boost clock
+    assert [w for w in written if "thermal" in w[0]] == [("sys/class/thermal/cooling_device1/cur_state", "0"),
+                                                         ("sys/class/thermal/cooling_device2/cur_state", "2")]
+
+def test_fan_resume_does_not_pin_a_curve_that_ended_meanwhile(monkeypatch):
+    m = _module(fan.Fan, {"enabled": False})
+    done = []
+    monkeypatch.setattr(fan, "RESUME_SETTLE_S", 0.05)
+    monkeypatch.setattr(fan, "fixed_by_os", lambda: True)  # SteamOS 3.9.2: only a game's curve pins
+    monkeypatch.setattr(m, "_pin", lambda reason, force_write=False: done.append("pin") or "pinned")
+    monkeypatch.setattr(m, "_write_enable", lambda value: done.append(f"enable {value}"))
+    monkeypatch.setattr(m, "_failsafe_tripped", lambda: False)
+    m._override = {"temps": [40] * 8, "pwm1": [80] * 8, "pwm2": [80] * 8}
+
+    async def main():
+        resume = asyncio.create_task(m.on_resume(60.0))
+        await asyncio.sleep(0.01)
+        await m.set_override(None)  # the game was quit right after the wake-up
+        await resume
+
+    asyncio.run(main())
+    assert done == ["enable 3"]
+
+
+def _reconcile_audio(monkeypatch, recorded_extras):
+    m = audio.Audio()
+    calls = []
+    extras = {"autogain": True, "dialog": False, "regulator": True, "virtualBass": False, "preGainDb": 0.0}
+    m.dsp = lambda: {"enabled": True, "extras": extras,
+                     "setup": {"done": True, "extrasSignature": dsp_settings.extras_signature(recorded_extras)}}
+    monkeypatch.setattr(convert, "list_presets", lambda: {"game": {"balanced": True}})
+    monkeypatch.setattr(convert, "venv_ok", lambda: True)
+    monkeypatch.setattr(asus_fetch, "current_xml", lambda: "/tuning.xml")
+    monkeypatch.setattr(audio.dsp_runtime, "unit_installed", lambda: True)
+    m._start_reconvert = lambda: calls.append("reconvert")
+
+    async def apply_current(force_restart=False):
+        calls.append("apply")
+
+    m._apply_current = apply_current
+    asyncio.run(m._reconcile())
+    return calls
+
+
+def test_a_conversion_cut_off_by_an_unload_is_redone_on_start(monkeypatch):
+    # dialog was switched off, the plugin unloaded mid-conversion: the recorded extras still have it on
+    assert _reconcile_audio(monkeypatch, {"autogain": True, "dialog": True, "regulator": True}) == ["reconvert"]
+    assert _reconcile_audio(monkeypatch, {"autogain": True, "dialog": False, "regulator": True}) == ["apply"]
+
+
+def test_a_conversion_where_every_preset_failed_is_an_error(tmp_path, monkeypatch):
+    xml = tmp_path / "tuning.xml"
+    xml.write_text("<device_data/>")
+    monkeypatch.setattr(convert.paths, "PRESETS_DIR", str(tmp_path / "presets"))
+    monkeypatch.setattr(hardware, "lv2_check", lambda: {"calf": False})
+
+    def disk_full(xml, profile, voicing, *args):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(convert, "convert_one", disk_full)
+    with pytest.raises(RuntimeError, match="All conversions failed"):
+        convert.convert_all(str(xml), "sink", {})
+    monkeypatch.setattr(convert, "convert_one", lambda xml, profile, *a: disk_full(xml, profile, "") if profile != "game" else {})
+    results = convert.convert_all(str(xml), "sink", {})  # some presets made it: a partial result, not an error
+    assert results["game/balanced"] == "ok" and results["music/warm"].startswith("error")

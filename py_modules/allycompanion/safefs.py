@@ -217,9 +217,3 @@ def write_bytes(path: str, data: bytes, mode: int = 0o644) -> None:
             raise
     finally:
         os.close(dfd)
-
-
-def ensure_dir(path: str) -> None:
-    """Create a directory below the home as the user when it is missing."""
-    if not os.path.isdir(path):
-        userfs.mkdir(path)

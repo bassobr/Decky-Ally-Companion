@@ -21,7 +21,7 @@ class JackWatcher:
         self.interval = interval
         self.on_change = on_change
         self.headphones: Optional[bool] = None
-        self.event_driven = False
+        self.event_driven: Callable[[], bool] = lambda: False  # asked each time: the event source can go away
         self._task: Optional[asyncio.Task] = None
         self._wake: Optional[asyncio.Event] = None
         self._burst_until = 0.0
@@ -52,7 +52,7 @@ class JackWatcher:
     def next_delay(self) -> float:
         if time.monotonic() < self._burst_until:
             return BURST_STEP_S
-        return IDLE_S if self.event_driven else self.interval
+        return IDLE_S if self.event_driven() else self.interval
 
     async def poll(self, should_run: Callable[[], bool]) -> None:
         dump = await asyncio.to_thread(hardware.pw_dump)

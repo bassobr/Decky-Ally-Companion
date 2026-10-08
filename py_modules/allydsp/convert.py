@@ -211,11 +211,9 @@ def convert_all(xml: str, target_sink: str, extras: Dict[str, Any], progress: Pr
     for name in os.listdir(paths.PRESETS_DIR) if os.path.isdir(paths.PRESETS_DIR) else []:
         if name not in PROFILE_IDS:
             shutil.rmtree(os.path.join(paths.PRESETS_DIR, name), ignore_errors=True)
+    failed = [r for r in results.values() if r != "ok"]
+    if failed and len(failed) == len(results):  # nothing new: the caller must not record these extras
+        raise RuntimeError("All conversions failed: " + failed[0])
     if progress:
         progress(100.0, "done")
     return results
-
-
-def clear_presets() -> None:
-    shutil.rmtree(paths.PRESETS_DIR, ignore_errors=True)
-    os.makedirs(paths.PRESETS_DIR, exist_ok=True)

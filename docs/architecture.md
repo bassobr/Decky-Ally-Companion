@@ -60,7 +60,7 @@ modules through four calls: `get_state`, `set_module_enabled`, `set_module_optio
 | vibration | Ally Fix | MCU `5A D1 06` / `5A D1 1F`, `vibration_intensity`, HID-BPF on the gamepad interface |
 | gyro | Ally Fix | `/etc/inputplumber/devices.d/50-rog_xbox_ally.yaml`, Steam's `steam_dev.cfg` (complex mode) |
 | gamepad_layout | Ally Fix | `~/.local/lib/ally-companion/`, drop-in `zz-ally-companion-gamepad-layout.conf` of steam-launcher.service |
-| cpu_boost | Ally Fix | `cpufreq/boost`, `scaling_max_freq` of every policy |
+| cpu_boost | Ally Fix | `cpufreq/boost`, `scaling_max_freq` of every policy; when boost goes back on, the `cur_state` of every ACPI `Processor` cooling device is written again (see SteamOS 3.9.2) |
 | fan | Ally Fix + new | `asus_custom_fan_curve` hwmon (`pwm*_enable`, auto points); from 85 °C on never below the factory curve of the active profile, read from the EC with `pwm_enable=3` |
 | battery | new | steamos-manager `BatteryChargeLimit1`, asus-armoury `mcu_powersave`, `boot_sound` |
 | lighting | new | `ally:rgb:joystick_rings` LED class, MCU `5A B3/B4/B5/BA` effects |
@@ -174,6 +174,7 @@ lilv 0.28, InputPlumber 0.78.0, steamos-manager 26.4.1. What changed for the plu
 | lilv | no tools (`lv2ls` is gone) | the LV2 check reads the bundles' `manifest.ttl` directly |
 | Python | 3.14 | the converter venv no longer matches and is rebuilt by the setup on plugin start (pinned numpy 2.5.3 and scipy 1.18.1 install) |
 | Fans | SteamOS works around the firmware bug after sleep | curve pinning off (`pwm*_enable` stays 2) |
+| CPU boost | the ACPI `Processor` cooling devices (one per core) hold their frequency limit as a share of `cpuinfo_max_freq` taken when their state was last set, and boost does not update it. Every resume sets them (16× state 0, traced with a kprobe on `processor_set_cur_state`), so after a sleep with boost off, `boost=1` stays at 2.0 GHz (a loaded core ran at 1.99 GHz; 5.01 GHz once the limit was recomputed) | turning boost on writes each `Processor` device's `cur_state` again, which recomputes the limit; the throttling level stays the same |
 | Package rename steamos → holo | `steamos-select-branch` and `holo-select-branch` both exist; steamos-manager keeps its D-Bus names | nothing to do yet |
 
 ## Files on the device

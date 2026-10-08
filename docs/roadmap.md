@@ -67,6 +67,15 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
     authorized again; and a re-enumeration while the plugin runs (rings and vibration set again,
     MCU packets traced with a kprobe on the RC73XA).
 
+18. **Second review** (0.5.3): a resume or a cap re-send no longer undoes switching CPU boost or
+    fan pinning off, a speaker preset conversion cut off by an unload runs again on the next start,
+    a conversion in which every preset fails is an error, unused code removed. Boost after a sleep
+    with boost off stayed at the base clock on both devices (the ACPI processor cooling limit, Linux
+    7.2 and 6.18); switching boost on now has it recomputed. Checked on both devices: cap writes
+    traced with a kprobe, the fan race on the real EC, a conversion cut off by a Decky restart and
+    redone, boost back to about 5 GHz after a self-waking sleep (RC73XA 4.56, RC72LA 4.97 GHz on a
+    loaded core).
+
 ## Open
 
 - **0.5.0 on the devices**: checked on the RC73XA (SteamOS 3.9.2 beta, 2026-10-07): install through

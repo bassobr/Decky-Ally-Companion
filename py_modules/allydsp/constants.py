@@ -35,7 +35,5 @@ INPUT_NODE = f"effect_input.{NODE_BASE}"
 OUTPUT_NODE = f"effect_output.{NODE_BASE}"
 SMART_FILTER_NAME = "ally-companion-dsp"
 
-UPDATE_CHECK_INTERVAL_S = 6 * 3600
-UPDATE_RETRY_S = 30 * 60
 PREGAIN_MIN_DB = -6.0
 PREGAIN_MAX_DB = 6.0

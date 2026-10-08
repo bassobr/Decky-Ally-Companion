@@ -24,6 +24,7 @@ from ..module import Module, cancel_task
 
 BOOST = "sys/devices/system/cpu/cpufreq/boost"
 POLICY_GLOB = "sys/devices/system/cpu/cpu[0-9]*/cpufreq"
+COOLING_GLOB = "sys/class/thermal/cooling_device*"
 KICK_STEP_KHZ = 30_000
 OVER_CAP_TOLERANCE_KHZ = 50_000
 DEBOUNCE_S = 1.0
@@ -35,6 +36,23 @@ _CPU_RE = re.compile(r"/cpu(\d+)/cpufreq$")
 def policies() -> List[str]:
     found = [(int(m.group(1)), p) for p in sysfs.sorted_glob(POLICY_GLOB) if (m := _CPU_RE.search(p))]
     return [p for _, p in sorted(found)]
+
+
+def refresh_processor_cooling() -> int:
+    """Have the ACPI processor cooling devices recompute their frequency limit; returns how many.
+
+    The kernel keeps that limit as a share of cpuinfo_max_freq taken when the cooling state was last
+    set, and boost does not update it. Set while boost was off, it holds every core at the base clock
+    once boost is back on (RC73XA, Linux 7.2: 2.0 instead of 5.1 GHz). Writing the current state
+    again recomputes it; the throttling level stays the same."""
+    done = 0
+    for d in sysfs.sorted_glob(COOLING_GLOB):
+        if sysfs.read_str(os.path.join(d, "type")) != "Processor":
+            continue
+        state = sysfs.read_str(os.path.join(d, "cur_state"))
+        if state is not None and sysfs.try_write(os.path.join(d, "cur_state"), state, "[cpu_boost]"):
+            done += 1
+    return done
 
 
 class CpuBoost(Module):
@@ -119,15 +137,20 @@ class CpuBoost(Module):
             await self.kick_cap("apply")
 
     async def revert(self) -> None:
-        self._stop_watch()
-        sysfs.write_str(sysfs.p(BOOST), "1")
-        # The re-sent cap is a frequency-QoS request that survives boost=1; lift it explicitly.
-        lifted = 0
-        for pol in policies():
-            hw_max = sysfs.read_int(os.path.join(pol, "cpuinfo_max_freq"))
-            if hw_max is not None and sysfs.try_write(os.path.join(pol, "scaling_max_freq"), str(hw_max), "[cpu_boost]"):
-                lifted += 1
-        logger.info("[cpu_boost] boost enabled, cap lifted on %d policies", lifted)
+        # A kick in flight puts the old cap back when it ends: let it end before the cap is lifted.
+        await cancel_task(self._watch_task)
+        self._watch_task = None
+        async with self._lock:
+            sysfs.write_str(sysfs.p(BOOST), "1")
+            # The re-sent cap is a frequency-QoS request that survives boost=1; lift it explicitly.
+            lifted = 0
+            for pol in policies():
+                hw_max = sysfs.read_int(os.path.join(pol, "cpuinfo_max_freq"))
+                if hw_max is not None and sysfs.try_write(os.path.join(pol, "scaling_max_freq"), str(hw_max), "[cpu_boost]"):
+                    lifted += 1
+            cooling = refresh_processor_cooling()
+        logger.info("[cpu_boost] boost enabled, cap lifted on %d policies, %d processor cooling limits refreshed",
+                    lifted, cooling)
 
     def details(self) -> Dict[str, Any]:
         return {"boost": sysfs.read_str(sysfs.p(BOOST)), "capSlips": self.cap_slips(),
@@ -204,11 +227,6 @@ class CpuBoost(Module):
             self._watch_task = loop.create_task(self._watch(reason))
         else:
             self._kick_requested = True  # every event gets its own kick
-
-    def _stop_watch(self) -> None:
-        if self._watch_task is not None and not self._watch_task.done():
-            self._watch_task.cancel()
-        self._watch_task = None
 
     async def _watch(self, reason: str) -> None:
         loop = asyncio.get_running_loop()

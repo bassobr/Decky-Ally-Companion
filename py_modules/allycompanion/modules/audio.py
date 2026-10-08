@@ -267,7 +267,7 @@ class Audio(Module):
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
         jack = self.ctx.jack if self.ctx else None
-        self.jack.event_driven = bool(jack and jack.available)
+        self.jack.event_driven = lambda: bool(jack and jack.available)
         if jack:
             jack.subscribe(self._on_jack_switch)
         self.jack.start(self.should_run)
@@ -334,7 +334,7 @@ class Audio(Module):
         s = self.dsp()  # as saved: checked
         if not self.setup_done():
             return
-        if dsp_settings.extras_signature(s["extras"]) != s["setup"].get("extrasSignature"):
+        if dsp_settings.presets_stale(s):
             self._start_reconvert()
         elif s.get("enabled"):
             await asyncio.to_thread(self.worker.run, ["enable"])
@@ -354,7 +354,11 @@ class Audio(Module):
             logger.warning("[audio] setup data incomplete, running setup again")
             await self.run_setup()
             return
-        if self.dsp().get("enabled"):
+        s = self.dsp()
+        if dsp_settings.presets_stale(s):
+            logger.warning("[audio] presets were made with other extras (conversion interrupted?), converting again")
+            self._start_reconvert()  # applies the preset when done
+        elif s.get("enabled"):
             await self._apply_current(force_restart=not dsp_runtime.unit_installed())
 
     async def _apply_current(self, force_restart: bool = False) -> None:
@@ -465,8 +469,7 @@ class Audio(Module):
                 self.setup_last = ev
                 self._emit_threadsafe({"kind": "setup", **ev})
             if ev["status"] == "done":
-                s = self.dsp()
-                if dsp_settings.extras_signature(s["extras"]) != s["setup"].get("extrasSignature"):
+                if dsp_settings.presets_stale(self.dsp()):
                     self._start_reconvert()
                 elif self.should_run():
                     await self._apply_current(force_restart=True)

@@ -301,19 +301,6 @@ def extract_dax3(exe_path: str, codec: Dict[str, Any], progress: Progress = None
     return prov
 
 
-def import_xml(src_path: str, codec: Dict[str, Any]) -> Dict[str, Any]:
-    """Import a tuning XML from another source (USB stick, mounted DriverStore)."""
-    info = validate_xml(src_path, codec["ssid"].upper())
-    os.makedirs(paths.DAX3_DIR, exist_ok=True)
-    dst = os.path.join(paths.DAX3_DIR, os.path.basename(src_path))
-    shutil.copy2(src_path, dst)
-    prov = {"xml_name": os.path.basename(dst), "xml_sha256": sha256_file(dst), "codec": codec,
-            "package": {"source": "manual-import", "path": src_path},
-            "extracted_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "xml_info": info, "method": "manual"}
-    write_json(paths.PROVENANCE_FILE, prov)
-    return prov
-
-
 def provenance() -> Optional[Dict[str, Any]]:
     return read_json(paths.PROVENANCE_FILE)
 

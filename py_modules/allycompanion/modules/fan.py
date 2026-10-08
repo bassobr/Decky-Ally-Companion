@@ -352,12 +352,14 @@ class Fan(Module):
             return
         await asyncio.sleep(RESUME_SETTLE_S)
         async with self._lock:
+            if not self.active:  # switched off, or the game's curve ended, while the EC settled
+                return
             done = self._pin("resume", force_write=True)
         await asyncio.sleep(RESUME_SETTLE_S)
-        if self.active and self._failsafe_tripped():
-            async with self._lock:
+        async with self._lock:
+            if self.active and self._failsafe_tripped():
                 done = self._pin("resume-failsafe", force_write=True)
-            logger.warning("[fan] fans still in failsafe after resume, re-pinned")
+                logger.warning("[fan] fans still in failsafe after resume, re-pinned")
         self._last_event = f"resume: {done}"
         logger.info("[fan] %s", self._last_event)
 

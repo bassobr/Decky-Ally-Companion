@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.3 (2026-10-08)
+
+- CPU boost: switching "CPU boost off" off, or a game profile with boost on, while the cap was
+  being re-sent after a charger event could leave the cores capped at the boost-off maximum. The
+  switch now waits for the re-send to end before it lifts the cap.
+- CPU boost on the Xbox Ally X with SteamOS 3.9.2: after a sleep with boost off, switching boost
+  back on (the switch, a game profile with boost on, uninstalling) left the cores at the base clock,
+  2.0 instead of up to 5.1 GHz. The kernel's ACPI processor cooling limit is taken from the clock at
+  the wake-up and does not follow boost; the plugin now has it recomputed when boost goes back on.
+- Fans: in the first seconds after a wake-up, the resume could pin a curve again although pinning
+  had just been switched off or the game with its own curve had ended.
+- Speaker DSP: a preset conversion cut off by the plugin's unload (reboot, Decky restart, plugin
+  update) left presets with mixed extras and the old sound in place; it now runs again on the next
+  start. A conversion in which every preset failed is reported as an error instead of "Presets
+  regenerated".
+- Speaker DSP: if the headphone jack switch goes away, the headphone check goes back to every 3 s
+  instead of once a minute.
+- Unused code removed.
+
 ## 0.5.2 (2026-10-07)
 
 - Lighting on SteamOS 3.9: when the controller came back after the plugin had started (a boot on

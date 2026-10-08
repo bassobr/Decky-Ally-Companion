@@ -64,10 +64,6 @@ def is_active(max_age: float = 0.0) -> bool:
     return value
 
 
-def is_enabled() -> bool:
-    return systemctl("is-enabled", paths.UNIT_NAME).out.strip() == "enabled"
-
-
 def enable(on: bool = True) -> None:
     r = systemctl("enable" if on else "disable", paths.UNIT_NAME)
     if not r.ok and "does not exist" not in r.err:
@@ -140,20 +136,6 @@ def apply_preset(profile: str, voicing: str, pregain_db: float = 0.0, restart_un
 def journal(lines: int = 20) -> str:
     r = run(["journalctl", "--user", "-u", paths.UNIT_NAME, "-n", str(lines), "--no-pager", "-o", "cat"], timeout=20)
     return r.out.strip() if r.ok else r.err.strip()
-
-
-def status(with_journal: bool = True) -> Dict[str, Any]:
-    dump = hardware.pw_dump()
-    return {
-        "unit_installed": os.path.isfile(paths.UNIT_PATH),
-        "unit_current": unit_installed(),
-        "enabled": is_enabled(),
-        "active": is_active(),
-        "verified": hardware.filter_node_present(dump, INPUT_NODE),
-        "links": hardware.filter_links(dump),
-        "active_preset": active_meta(),
-        "journal": journal(12) if with_journal else "",
-    }
 
 
 def remove_unit() -> None:
