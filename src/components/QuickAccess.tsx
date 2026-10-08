@@ -28,6 +28,20 @@ function reopenWithNewUi(): void {
   }, 3000);
 }
 
+/** Decky keeps the replaced plugin selected in Quick Access after an update, also when that version
+ * predates the hint above: select the current one when the selected entry is not it. */
+export function selectCurrentPanel(): void {
+  try {
+    const ds = window.DeckyPluginLoader?.deckyState;
+    const st = ds?.publicState?.();
+    if (st?.activePlugin?.name === t.title && st.activePlugin !== st.plugins.find((p) => p.name === t.title)) {
+      ds?.setActivePlugin?.(t.title);
+    }
+  } catch {
+    /* the old panel stays until it is reopened */
+  }
+}
+
 /** Speaker preset for what is running now: off, the default, or a profile (per game while one runs). */
 function Sound() {
   const m = usePluginState().state?.modules.audio;

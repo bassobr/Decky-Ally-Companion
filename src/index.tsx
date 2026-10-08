@@ -2,7 +2,7 @@ import { definePlugin, routerHook } from "@decky/api";
 import { staticClasses } from "@decky/ui";
 import { FaGamepad } from "react-icons/fa";
 import { startAppWatcher, stopAppWatcher } from "./appWatcher";
-import { QuickAccess } from "./components/QuickAccess";
+import { QuickAccess, selectCurrentPanel } from "./components/QuickAccess";
 import { stopLayoutPatch, syncLayoutPatch } from "./layoutPatch";
 import { ROUTE } from "./navigation";
 import { addSettingsEntry, removeSettingsEntry } from "./settingsEntry";
@@ -18,12 +18,15 @@ export default definePlugin(() => {
   connectEvents();
   startAppWatcher();
   addSettingsEntry();
+  // after an update: once Decky has this bundle in its list (it loads a fresh install twice, ~2 s apart)
+  const reselect = window.setTimeout(selectCurrentPanel, 3000);
   return {
     name: t.title,
     titleView: <div className={staticClasses.Title}>{t.title}</div>,
     content: <QuickAccess />,
     icon: <FaGamepad />,
     onDismount() {
+      window.clearTimeout(reselect);
       unsubscribe();
       removeSettingsEntry();
       stopAppWatcher();

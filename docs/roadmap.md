@@ -87,6 +87,9 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
     update it has just installed; it shows a hint and switches to the new panel after 3 s.
     Checked on the RC73XA: the fix installed as 0.5.3-test, then the real update to 0.5.4 from the
     Quick Access button and Decky's dialog (hint after 1.5 s, new panel after about 6 s).
+    From 0.5.6 the new version replaces the panel itself, so the replaced version does not need
+    the change: checked on the RC73XA from the official 0.5.4 to a 0.5.6 build installed through
+    Decky's installer (new panel after about 6.5 s).
 
 ## Open
 

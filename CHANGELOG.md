@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.6 (2026-10-08)
+
+- In-app updates: the new version now replaces the old Quick Access panel itself, about 3 s after
+  Decky has loaded it. This works for updates from any version, also from those without the
+  0.5.5 change, so the panel no longer offers the update it has just installed.
+
 ## 0.5.5 (2026-10-08)
 
 - In-app updates: after an update, Decky keeps the old Quick Access panel on screen. It went on
