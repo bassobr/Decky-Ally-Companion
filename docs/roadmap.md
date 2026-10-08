@@ -76,6 +76,13 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
     redone, boost back to about 5 GHz after a self-waking sleep (RC73XA 4.56, RC72LA 4.97 GHz on a
     loaded core).
 
+19. **Frontend review** (0.5.4): a game's own vibration strength starts from the current one;
+    while a game sets the lighting or vibration, the Quick Access brightness edits that game's
+    profile and the pages say so; both grip sliders keep their values when set in quick
+    succession; the setup button is greyed out during a reconversion. Checked on the RC73XA with a
+    simulated running app over CDP: the profile toggles, the Quick Access slider (clicked), both
+    pages, both grip sliders 0.1 s apart, the setup button during a reconversion.
+
 ## Open
 
 - **0.5.0 on the devices**: checked on the RC73XA (SteamOS 3.9.2 beta, 2026-10-07): install through
@@ -85,13 +92,9 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
   running setup, hash-pinned wheels with Python 3.14.6, all pages. The RC72LA took 0.5.0 from
   GitHub in-app, the RC73XA 0.5.1 through the System page (zip verified in the backend, handed to
   Decky from `/run`). A sleep/wake cycle (RTC wake) on the RC73XA with 0.5.2: resume detected,
-  modules applied again. Still open: a headphone plug by hand.
+  modules applied again. Checked by hand (2026-10-08): the gyro on the RC72LA in Steam and every
+  lighting mode on the rings. Still open: a headphone plug by hand.
 
-- **Gyro on the ROG Ally X**: the override is applied and reverted correctly; whether Steam then
-  reads the axes right needs a hand on the device (expected, since product id and mount matrix are
-  the Xbox Ally X's).
-- **Lighting effects**: breathing, colour cycle and rainbow send the MCU commands without errors,
-  but nobody has looked at the rings yet. Static colours and brightness are verified through sysfs.
 
 ## Decided against
 

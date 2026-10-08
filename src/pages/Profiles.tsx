@@ -8,15 +8,9 @@ import { confirm } from "../steamRestart";
 import { mod, usePluginState } from "../store";
 import type { AudioDetails, GameProfile, PerAppPreset } from "../types";
 import { presetLabel } from "./Audio";
-import { pickColor, Swatch } from "./Lighting";
+import { MODES, pickColor, Swatch } from "./Lighting";
 
-const LIGHT_MODES = [
-  { data: "static", label: "Static" },
-  { data: "breathing", label: "Breathing" },
-  { data: "cycle", label: "Colour cycle" },
-  { data: "rainbow", label: "Rainbow" },
-  { data: "off", label: "Off" },
-];
+const LIGHT_MODES = MODES.filter((m) => m.data !== "battery");
 
 /** "sound Movie · Warm · light static #00ff00 · vibration 30 %" */
 function summary(e: GameProfile | undefined, audioEntry: PerAppPreset | undefined, audioDetails: Partial<AudioDetails>): string {
@@ -84,10 +78,13 @@ function ThisGame({ appId }: { appId: string }) {
   const name = appName(appId);
   const set = (part: string, values: unknown) => void mod.action("profiles", "set_app", { appId, part, values, name });
   const l = entry.lighting;
-  const [bright, setBright] = useState<number>(l?.brightness ?? light?.details.brightness ?? 60);
-  const [strength, setStrength] = useState<number>(entry.vibration?.left ?? vib?.details.left ?? 50);
-  useEffect(() => setBright(l?.brightness ?? 60), [l?.brightness]);
-  useEffect(() => setStrength(entry.vibration?.left ?? 50), [entry.vibration?.left]);
+  // the game's own value, else the current one: switching a part on starts from what is set now
+  const brightNow = l?.brightness ?? light?.details.brightness ?? 60;
+  const strengthNow = entry.vibration?.left ?? vib?.details.left ?? 50;
+  const [bright, setBright] = useState<number>(brightNow);
+  const [strength, setStrength] = useState<number>(strengthNow);
+  useEffect(() => setBright(brightNow), [brightNow]);
+  useEffect(() => setStrength(strengthNow), [strengthNow]);
   const sendBright = useDebounced((v: number) => set("lighting", { ...l, brightness: v }));
   const sendStrength = useDebounced((v: number) => set("vibration", { left: v, right: v }));
   const baseLight = () => ({ mode: light?.details.mode ?? "static", color: light?.details.color ?? "#ffffff",

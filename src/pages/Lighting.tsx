@@ -1,10 +1,11 @@
-import { ButtonItem, ColorPickerModal, DialogBody, DialogControlsSection, DialogControlsSectionHeader, DropdownItem, showModal, SliderField } from "@decky/ui";
+import { ButtonItem, ColorPickerModal, DialogBody, DialogControlsSection, DialogControlsSectionHeader, DropdownItem, Field, showModal, SliderField } from "@decky/ui";
 import { useEffect, useState } from "react";
+import { appName } from "../appWatcher";
 import { isActive, ModuleToggle } from "../components/ModuleRow";
 import { useDebounced } from "../hooks/useDebounced";
 import { mod, useModule } from "../store";
 
-const MODES = [
+export const MODES = [
   { data: "static", label: "Static" },
   { data: "breathing", label: "Breathing" },
   { data: "cycle", label: "Colour cycle" },
@@ -60,6 +61,7 @@ export function Swatch({ color }: { color: string }) {
 
 export function Lighting() {
   const m = useModule("lighting");
+  const game = useModule("profiles")?.details.runningApp ?? null;
   const d = m?.details ?? {};
   const [brightness, setBrightness] = useState<number>(d.brightness ?? 60);
   useEffect(() => setBrightness(d.brightness ?? 60), [d.brightness]);
@@ -74,7 +76,12 @@ export function Lighting() {
         <DialogControlsSectionHeader>Joystick rings</DialogControlsSectionHeader>
         <ModuleToggle m={m} label="Control the lighting" description="Off: the rings keep whatever was set last."
           onChange={(v) => void mod.enable("lighting", v)} />
-        {on && (
+        {on && d.override && (
+          // the game's values win: controls here would change the default and seem to do nothing
+          <Field focusable label={`${game ? appName(game) : "The running game"} has its own lighting`}
+            description="Change it under Game profiles. Your own settings come back when the game ends." />
+        )}
+        {on && !d.override && (
           <>
             <DropdownItem label="Mode" rgOptions={MODES} selectedOption={mode}
               onChange={(o) => void mod.options("lighting", { mode: o.data })} />

@@ -46,7 +46,8 @@ function Setup({ m }: { m: ModuleStatus<AudioDetails> }) {
       )}
       {!s.inProgress && last && last.status === "error" && <Field focusable label="Setup failed" description={last.message} />}
       {!s.inProgress && (
-        <ButtonItem layout="below" description={s.done ? `Package ${s.packageVersion ?? "?"} · converter ${s.converterVersion ?? "?"}` : undefined}
+        <ButtonItem layout="below" disabled={!!s.converting}
+          description={s.done ? `Package ${s.packageVersion ?? "?"} · converter ${s.converterVersion ?? "?"}` : undefined}
           onClick={() => void mod.action("audio", "run_setup", { force: !!s.done, allowUnsupported: !!unsupported })}>
           {s.done ? "Run setup again" : unsupported ? "Try anyway (device not in the list)" : "Run setup"}
         </ButtonItem>

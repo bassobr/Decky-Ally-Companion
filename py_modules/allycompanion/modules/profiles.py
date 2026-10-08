@@ -122,6 +122,7 @@ class Profiles(Module):
             values = (entry or {}).get(part)
             try:
                 await m.set_override(values if values else None)  # type: ignore[attr-defined]
+                await m.notify()  # the pages show the values in force; a profile edit changes them too
             except Exception:  # noqa: BLE001
                 logger.exception("[profiles] %s override failed", part)
         try:

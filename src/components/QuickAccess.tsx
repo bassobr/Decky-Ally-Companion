@@ -59,10 +59,16 @@ function Sound() {
 }
 
 function LightBrightness() {
-  const m = usePluginState().state?.modules.lighting;
+  const s = usePluginState().state;
+  const m = s?.modules.lighting;
+  const appId = s?.modules.profiles?.details.runningApp ?? null;
+  // a running game with its own lighting: its profile wins, so the slider changes that profile
+  const own = appId && m?.details.override ? s?.modules.profiles?.details.apps?.[appId]?.lighting : undefined;
   const [value, setValue] = useState<number>(m?.details.brightness ?? 60);
   useEffect(() => setValue(m?.details.brightness ?? 60), [m?.details.brightness]);
-  const send = useDebounced((v: number) => void mod.options("lighting", { brightness: v }));
+  const send = useDebounced((v: number) => void (own && appId
+    ? mod.action("profiles", "set_app", { appId, part: "lighting", values: { ...own, brightness: v }, name: appName(appId) })
+    : mod.options("lighting", { brightness: v })));
   if (!m || !m.enabled || !isActive(m) || m.details.mode === "off") return null;
   return (
     <PanelSectionRow>

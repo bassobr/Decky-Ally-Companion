@@ -43,8 +43,7 @@ All pages work on both. Differences:
   the plugin re-sends it. On the Ally X the cap holds (measured), so only "keep boost off" is
   offered there.
 - **Gyro fix** on the Ally X: InputPlumber presents it with the same controller id and sensor
-  orientation as the Xbox Ally X, and the fix applies and reverts the same way. The axes in Steam
-  have not been checked by hand there yet.
+  orientation as the Xbox Ally X, and the fix applies and reverts the same way.
 
 Other models (the original ROG Ally, the ROG Xbox Ally) are not targeted. Open checks are listed in
 [docs/roadmap.md](docs/roadmap.md).

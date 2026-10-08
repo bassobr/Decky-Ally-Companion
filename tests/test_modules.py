@@ -314,12 +314,16 @@ def test_news_unseen_and_mark_seen():
 class _Target:
     def __init__(self):
         self.values = "unset"
+        self.notified = 0
 
     def supported(self):
         return True, ""
 
     async def set_override(self, values):
         self.values = values
+
+    async def notify(self):
+        self.notified += 1  # the UI shows the values in force
 
 
 def test_profiles_push_overrides_on_app_change():
@@ -334,8 +338,10 @@ def test_profiles_push_overrides_on_app_change():
     assert light.values == "unset"  # not running yet
     asyncio.run(m.on_app_changed("42"))
     assert light.values == {"color": "#00ff00"} and vib.values is None
+    notified = vib.notified
     asyncio.run(m.set_app(appId="42", part="vibration", values={"left": 20}))
     assert vib.values == {"left": 20, "right": 20}  # stored as the vibration module keeps it
+    assert vib.notified == notified + 1  # a profile edit while the game runs reaches the pages
     asyncio.run(m.on_app_changed(None))
     assert light.values is None and vib.values is None
     asyncio.run(m.set_app(appId="42", part="lighting", values=None))

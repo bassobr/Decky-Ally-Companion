@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.4 (2026-10-08)
+
+- Game profiles: switching on a game's own vibration strength started at 50 % instead of the
+  strength set now.
+- While a game with its own lighting runs, the brightness in the Quick Access panel changes that
+  game's profile. Before, it changed the default, which the game's profile overrides, so nothing
+  happened. The Lighting page says that the game sets the lighting and hides its controls; the
+  Controller page says that the game has its own vibration strength.
+- The pages show a game profile's changes right away: lighting, vibration, CPU boost and fans
+  report their state after a profile edit.
+- Vibration with separate grips: setting the right grip right after the left one no longer drops
+  the left value.
+- Audio: "Run setup again" is greyed out while the presets are regenerated; it did nothing then.
+- Unused code removed.
+
 ## 0.5.3 (2026-10-08)
 
 - CPU boost: switching "CPU boost off" off, or a game profile with boost on, while the cap was

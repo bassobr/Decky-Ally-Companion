@@ -1,6 +1,7 @@
 import { ButtonItem, DialogBody, DialogControlsSection, DialogControlsSectionHeader, DropdownItem, Field, SliderField, ToggleField } from "@decky/ui";
 import { toaster } from "@decky/api";
 import { useEffect, useState } from "react";
+import { appName } from "../appWatcher";
 import { repairController } from "../backend";
 import { InfoField, isActive, ModuleToggle } from "../components/ModuleRow";
 import { useDebounced } from "../hooks/useDebounced";
@@ -16,25 +17,32 @@ const GYRO_MODES = [
 
 function Vibration({ m }: { m: ModuleStatus<VibrationDetails> }) {
   const d = m.details;
+  const game = useModule("profiles")?.details.runningApp ?? null;
   const [left, setLeft] = useState<number>(d.left ?? 50);
   const [right, setRight] = useState<number>(d.right ?? 50);
   useEffect(() => { setLeft(d.left ?? 50); setRight(d.right ?? 50); }, [d.left, d.right]);
-  const send = useDebounced((o: Record<string, unknown>) => void mod.options("vibration", o));
+  // one sender per slider: a shared one would drop the left value when the right one follows quickly
+  const sendLeft = useDebounced((v: number) => void mod.options("vibration", { left: v }));
+  const sendRight = useDebounced((v: number) => void mod.options("vibration", { right: v }));
   const usable = isActive(m);
   return (
     <DialogControlsSection>
       <DialogControlsSectionHeader>Vibration</DialogControlsSectionHeader>
       <ModuleToggle m={m} label="Lower grip vibration" description="The factory setting is 100 %, which most games overdo."
         onChange={(on) => void mod.enable("vibration", on)} />
+      {m.enabled && usable && d.override && (
+        <Field focusable label={`${game ? appName(game) : "The running game"} has its own strength (${d.override[0]} %)`}
+          description="Change it under Game profiles. The sliders below set the strength for everything else." />
+      )}
       {m.enabled && usable && (
         <>
           <ToggleField label="Same strength for both grips" checked={!!d.linked}
             onChange={(on) => void mod.options("vibration", { linked: on })} />
           <SliderField label={d.linked ? "Strength" : "Left grip"} value={left} min={0} max={100} step={5} showValue valueSuffix=" %"
-            onChange={(v) => { setLeft(v); if (d.linked) setRight(v); send({ left: v }); }} />
+            onChange={(v) => { setLeft(v); if (d.linked) setRight(v); sendLeft(v); }} />
           {!d.linked && (
             <SliderField label="Right grip" value={right} min={0} max={100} step={5} showValue valueSuffix=" %"
-              onChange={(v) => { setRight(v); send({ right: v }); }} />
+              onChange={(v) => { setRight(v); sendRight(v); }} />
           )}
         </>
       )}
