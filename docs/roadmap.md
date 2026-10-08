@@ -83,6 +83,11 @@ audio setup from scratch (ASUS download, venv, 15 presets) finishes in about 30 
     simulated running app over CDP: the profile toggles, the Quick Access slider (clicked), both
     pages, both grip sliders 0.1 s apart, the setup button during a reconversion.
 
+20. **Panel after an in-app update** (0.5.5): the replaced Quick Access panel no longer offers the
+    update it has just installed; it shows a hint and switches to the new panel after 3 s.
+    Checked on the RC73XA: the fix installed as 0.5.3-test, then the real update to 0.5.4 from the
+    Quick Access button and Decky's dialog (hint after 1.5 s, new panel after about 6 s).
+
 ## Open
 
 - **0.5.0 on the devices**: checked on the RC73XA (SteamOS 3.9.2 beta, 2026-10-07): install through

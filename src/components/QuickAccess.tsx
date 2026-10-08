@@ -14,15 +14,18 @@ import { isActive } from "./ModuleRow";
 
 let reopenTried = false;
 
-/** After an update Decky has loaded the new bundle but keeps showing this old panel; select the plugin again. */
+/** After an update Decky has loaded the new bundle but keeps showing this old panel; select the plugin again
+ * once Decky is done (it loads a fresh install twice, about 2 s apart). */
 function reopenWithNewUi(): void {
   if (reopenTried) return;
   reopenTried = true;
-  try {
-    window.DeckyPluginLoader?.deckyState?.setActivePlugin?.(t.title);
-  } catch {
-    /* the stale-UI row stays as a hint */
-  }
+  window.setTimeout(() => {
+    try {
+      window.DeckyPluginLoader?.deckyState?.setActivePlugin?.(t.title);
+    } catch {
+      /* the hint stays */
+    }
+  }, 3000);
 }
 
 /** Speaker preset for what is running now: off, the default, or a profile (per game while one runs). */
@@ -80,13 +83,23 @@ function LightBrightness() {
 
 // The sidebar holds only what changes during a game; everything else is in the fullscreen view.
 export function QuickAccess() {
-  const { state, error, refresh } = usePluginState();
+  const { state, error, refresh, unloaded } = usePluginState();
   const [busy, setBusy] = useState(false);
-  const stale = !!state && state.version !== FRONTEND_VERSION;
+  const stale = unloaded || (!!state && state.version !== FRONTEND_VERSION);
 
   useEffect(() => {
     if (stale) reopenWithNewUi();
   }, [stale]);
+
+  if (stale) { // its buttons would act on frozen state, such as an update that is already installed
+    return (
+      <PanelSection>
+        <PanelSectionRow>
+          <Field label={t.staleUi} />
+        </PanelSectionRow>
+      </PanelSection>
+    );
+  }
 
   if (error || !state) {
     return (
@@ -122,11 +135,6 @@ export function QuickAccess() {
         <Field label={state.device.model ?? t.unsupported} description={w.length ? w.join(" · ") : t.allGood}
           focusable onActivate={() => openPage("overview")} />
       </PanelSectionRow>
-      {stale && (
-        <PanelSectionRow>
-          <Field label={t.staleUi} />
-        </PanelSectionRow>
-      )}
       {restartPending && (
         <PanelSectionRow>
           <ButtonItem layout="below" onClick={() => void restartSteam()}>Restart Steam to apply</ButtonItem>

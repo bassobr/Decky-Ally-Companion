@@ -8,6 +8,7 @@ import type { AudioDetails, ConvertEvent, ModuleDetails, ModuleId, ModuleResult,
 /** Plugin state shared by the panel, the fullscreen view and the Steam-side patches. */
 let cache: PluginState | null = null;
 let error: string | null = null;
+let unloaded = false; // Decky dropped this bundle (an update): its panel may stay on screen with frozen state
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((l) => l());
 
@@ -93,12 +94,14 @@ export function disconnectEvents(): void {
   removeEventListener("update_state", onUpdate);
   removeEventListener("audio_progress", onAudioProgress);
   removeEventListener("news_new", onNews);
+  unloaded = true;
+  notify();
 }
 
 export function usePluginState() {
   const [, setTick] = useState(0);
   useEffect(() => store.subscribe(() => setTick((t) => t + 1)), []);
-  return { state: cache, error, refresh: store.refresh };
+  return { state: cache, error, refresh: store.refresh, unloaded };
 }
 
 export function useModule<K extends ModuleId>(id: K): ModuleStatus<ModuleDetails[K]> | undefined {

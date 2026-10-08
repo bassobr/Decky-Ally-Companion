@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.5 (2026-10-08)
+
+- In-app updates: after an update, Decky keeps the old Quick Access panel on screen. It went on
+  offering the update it had just installed, and pressing the button again failed with "not newer".
+  The old panel now shows only "Updated: press B and reopen Ally Companion" and switches to the new
+  one by itself after 3 s. This takes effect from the update after 0.5.5 on, because the panel that
+  is replaced has to have it.
+
 ## 0.5.4 (2026-10-08)
 
 - Game profiles: switching on a game's own vibration strength started at 50 % instead of the
